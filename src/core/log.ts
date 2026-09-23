@@ -53,7 +53,9 @@ export interface LoggedSet {
   /** weight is assistance (assisted pull-up machine): not counted as load */
   assisted: boolean;
   unilateral: boolean;
+  /** full reps (partials are counted separately) */
   reps: number;
+  partials: number;
   /** estimated range of each rep (side with most reps) */
   ranges: { full: number; top: number; bottom: number; mid: number };
   sides: SideResult[];
@@ -111,14 +113,14 @@ export function buildLogFull(detected: DetectedSet[], events: WorkoutEvent[], de
       exerciseId: ex?.exerciseId ?? "unknown", exerciseName: ex?.name ?? "Unassigned exercise", grip: g?.grip ?? "",
       weight: w?.value ?? null, unit: w?.unit ?? defaultUnit,
       assisted: !!ex?.assisted, unilateral: !!ex?.unilateral, ranges,
-      reps: d.reps, sides: d.sides, flags: d.flags, group: null, groupId: null, edited: false,
+      reps: ranges.full, partials: ranges.top + ranges.bottom + ranges.mid, sides: d.sides, flags: d.flags, group: null, groupId: null, edited: false,
     };
     // weight tapped mid-set: drop set within the set
     const mid = evs.filter((e): e is Extract<WorkoutEvent, { type: "weight" }> => e.type === "weight" && e.t > d.start + 2000 && e.t < d.end);
     if (mid.length) {
       const cuts = [d.start, ...mid.map((m) => m.t), d.end];
       const weights = [set.weight ?? 0, ...mid.map((m) => m.value)];
-      const repsOf = (a: number, b: number) => Math.max(0, ...d.sides.map((s) => s.reps.filter((r: Rep) => r.peakT >= a && r.peakT < b).length));
+      const repsOf = (a: number, b: number) => Math.max(0, ...d.sides.map((s) => s.reps.filter((r: Rep) => r.peakT >= a && r.peakT < b && (r.range ?? "full") === "full").length));
       // quick successive taps (14.7 -> 12.7 -> 10.7) leave empty segments: keep only the ones with reps
       set.segments = weights.map((wt, i) => ({ weight: wt, start: cuts[i], end: cuts[i + 1], reps: repsOf(cuts[i], cuts[i + 1]) })).filter((g) => g.reps > 0);
       if (set.segments.length < 2) { if (set.segments.length === 1) set.weight = set.segments[0].weight; set.segments = undefined; }

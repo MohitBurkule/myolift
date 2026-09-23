@@ -8,7 +8,9 @@ import { Body, Button, Card, Label, Pill, Title } from "../components/ui";
 import { shortName } from "../lib/exercises";
 import { getSettings } from "../lib/settings";
 import { clock, useTheme } from "../lib/theme";
-import { editSet, envelopeOf, liveLog, loadWorkout } from "../lib/workout";
+import { activeWorkoutId, analyseWorkout, editSet, envelopeOf, liveLog, loadWorkout, redetectLive } from "../lib/workout";
+import { defaultMode, learnFromCorrection, paramsFor, setMode } from "../lib/reps";
+import { useSettings } from "../lib/settings";
 
 /** One set: activation per arm with reps and holds marked, rep-by-rep numbers, and corrections. */
 export default function SetScreen() {
@@ -17,6 +19,9 @@ export default function SetScreen() {
   const [set, setSet] = useState<LoggedSet | null>(null);
   const [traces, setTraces] = useState<Record<string, Float32Array | null>>({});
   const [confirm, setConfirm] = useState(false);
+  const [draft, setDraft] = useState<number | null>(null);
+  const [learning, setLearning] = useState<string | null>(null);
+  const settings = useSettings();
   const reload = () => {
     const sets = wid ? loadWorkout(wid)?.sets ?? [] : liveLog();
     setSet(sets.find((s) => s.id === sid) ?? null);
@@ -33,6 +38,32 @@ export default function SetScreen() {
   if (!set) return <View style={{ flex: 1, backgroundColor: t.bg, padding: 24 }}><Body muted>Set not found (it may have been merged or deleted).</Body></View>;
 
   const step = getSettings().weightStep;
+  const liveId = activeWorkoutId();
+  const wId = wid ?? liveId ?? "";
+  const isLive = !wid || wid === liveId;
+  const prof = settings.repProfiles[set.exerciseId];
+  const mode = prof?.params.mode ?? defaultMode(set.exerciseId, set.exerciseName);
+  const reps = draft ?? set.reps;
+  async function reanalyse() {
+    if (isLive) redetectLive();
+    else if (wid) await analyseWorkout(wid);
+    reload();
+  }
+  async function saveCorrection() {
+    if (draft === null) return;
+    editSet(set!.start, { reps: draft }, wid);
+    setLearning("Learning from your count…");
+    await new Promise((r) => setTimeout(r, 30));
+    try {
+      const p = await learnFromCorrection(set!.exerciseId, set!.exerciseName, wId, isLive, { start: set!.start, end: set!.end }, draft);
+      setLearning(`Learned from ${p.labels.length} corrected set${p.labels.length > 1 ? "s" : ""}${p.error ? ` (still off by ${p.error} in total)` : " (all match)"}`);
+      await reanalyse();
+    } catch (e: any) {
+      setLearning(`Saved the count; learning failed: ${e?.message ?? e}`);
+    }
+    setDraft(null);
+  }
+  void paramsFor;
   const pad = 1500, a = set.start - pad, b = set.end + pad, span = b - a;
   const refs = getSettings().refs;
   return (
@@ -80,9 +111,22 @@ export default function SetScreen() {
       <Label>Fix this set</Label>
       <Card style={{ padding: 12, gap: 10 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text style={{ color: t.ink, flex: 1 }}>Reps: <Text style={{ fontWeight: "700" }}>{set.reps}</Text></Text>
-          <Button small title="−1" onPress={() => { editSet(set.start, { reps: Math.max(0, set.reps - 1) }, wid); reload(); }} />
-          <Button small title="+1" onPress={() => { editSet(set.start, { reps: set.reps + 1 }, wid); reload(); }} />
+          <Text style={{ color: t.ink, flex: 1 }}>Full reps: <Text style={{ fontWeight: "700" }}>{reps}</Text>{draft !== null && draft !== set.reps ? <Text style={{ color: t.muted }}> (was {set.reps})</Text> : null}</Text>
+          <Button small title="−1" onPress={() => setDraft(Math.max(0, reps - 1))} />
+          <Button small title="+1" onPress={() => setDraft(reps + 1)} />
+        </View>
+        {draft !== null && draft !== set.reps ? <Button title="Save & learn" variant="primary" disabled={!!learning && learning.startsWith("Learning")} onPress={saveCorrection} /> : null}
+        {learning ? <Text style={{ color: t.muted, fontSize: 13 }}>{learning}</Text> : null}
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: t.muted, fontSize: 13 }}>
+            {shortName({ id: set.exerciseId, name: set.exerciseName })} counts reps as <Text style={{ color: t.ink, fontWeight: "700" }}>{mode === "dip" ? "lockout dips" : "activation peaks"}</Text>
+            {prof?.labels.length ? `, learned from ${prof.labels.length} corrected set${prof.labels.length > 1 ? "s" : ""}.` : " (default settings; correcting a count teaches it)."}
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Button small title="Peaks" variant={mode === "peak" ? "primary" : "plain"} onPress={async () => { setMode(set.exerciseId, set.exerciseName, "peak"); await reanalyse(); }} />
+            <Button small title="Lockout dips" variant={mode === "dip" ? "primary" : "plain"} onPress={async () => { setMode(set.exerciseId, set.exerciseName, "dip"); await reanalyse(); }} />
+          </View>
+          <Text style={{ color: t.muted, fontSize: 12 }}>Peaks: the muscle works hardest at the top (cable pushdown, curls). Lockout dips: the muscle relaxes when locked out (pushdown machine).</Text>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Text style={{ color: t.ink, flex: 1 }}>Weight: <Text style={{ fontWeight: "700" }}>{set.weight ?? "–"} {set.unit}</Text></Text>

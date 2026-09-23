@@ -45,3 +45,4 @@ yarn-error.*
 /ios
 node_modules
 tests/photos/
+tests/real/

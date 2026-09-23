@@ -14,6 +14,7 @@ import { Directory, File, Paths } from "expo-file-system";
 import Native from "../../modules/myoblue-native";
 import { buildLog, buildLogFull, stateAt, type Ignored, type LoggedSet, type Placement, type Side, type Unit, type WorkoutEvent } from "../core/log";
 import { shortName } from "./exercises";
+import { registerLiveChannels, registerWorkoutsDir, resolverFor } from "./reps";
 import { envelopeBins, filteredWindow, fitClock } from "../core/offline";
 import { ACT_DT, DEFAULT_DETECT, detectSets, formFlags, medianFrequency, movingAverage, type Activation, type Channel, type DetectedSet, type Reference } from "../core/workout";
 import { BIN_ORIGIN, getSensor } from "./sensors";
@@ -192,7 +193,11 @@ function appendLine(f: File, line: string) {
 /* ---------------- live detection ---------------- */
 
 function liveChannels(a: Active, from: number, to: number): Channel[] {
-  const { placement, refs } = stateAt(a.events, to);
+  return liveChannelsAt(a, from, to, to);
+}
+
+function liveChannelsAt(a: Active, from: number, to: number, at: number): Channel[] {
+  const { placement, refs } = stateAt(a.events, at);
   const out: Channel[] = [];
   for (const p of placement) {
     const s = getSensor(p.sensorId);
@@ -214,7 +219,7 @@ function tick() {
   const a = state.active;
   if (!a) return;
   const t = now() - a.origin;
-  const opt = { ...DEFAULT_DETECT, restGapS: getSettings().restGapS };
+  const opt = { ...DEFAULT_DETECT, restGapS: getSettings().restGapS, repParams: resolverFor(a.events) };
   const from = Math.max(0, a.frozenUntil + 500, t - 10 * 60_000);
   const sets = detectSets(liveChannels(a, from, t), opt);
   const closeBefore = t - (opt.restGapS + 1.5) * 1000;
@@ -227,6 +232,26 @@ function tick() {
   const live = current.find((s) => s.end > t - opt.restGapS * 1000) ?? null;
   const lastEnd = a.frozen.length ? a.frozen[a.frozen.length - 1].end : null;
   emit({ live, restMs: live ? null : lastEnd !== null ? t - lastEnd : null });
+}
+
+/** After the rep settings changed: detect this placement period's sets again with the new settings. */
+export function redetectLive() {
+  const a = state.active;
+  if (!a) return;
+  const t = now() - a.origin;
+  let from = 0;
+  for (const e of a.events) if (e.type === "placement" && e.t <= t) from = e.t;
+  const opt = { ...DEFAULT_DETECT, restGapS: getSettings().restGapS, repParams: resolverFor(a.events) };
+  const sets = detectSets(liveChannels(a, from, t), opt);
+  const closeBefore = t - (opt.restGapS + 1.5) * 1000;
+  a.frozen = [...a.frozen.filter((s) => s.end < from), ...sets.filter((s) => s.end < closeBefore)];
+  a.frozenUntil = a.frozen.length ? a.frozen[a.frozen.length - 1].end : 0;
+  a.current = sets.filter((s) => s.end >= closeBefore);
+  emit({});
+}
+
+export function activeWorkoutId(): string | null {
+  return state.active?.meta.id ?? null;
 }
 
 export function liveLog(): LoggedSet[] {
@@ -354,7 +379,7 @@ export async function analyseWorkout(id: string): Promise<void> {
       if (!f || !cal) continue;
       channels.push({ key: pl.sensorId, side: pl.side, muscle: pl.muscle, ref: cal.ref, act: binsToActivation(f.bins, cal.ref, from, Math.min(to, f.bins.length * ACT_DT)) });
     }
-    const sets = detectSets(channels, { ...DEFAULT_DETECT, restGapS: getSettings().restGapS });
+    const sets = detectSets(channels, { ...DEFAULT_DETECT, restGapS: getSettings().restGapS, repParams: resolverFor(events) });
     for (const set of sets) {
       for (const side of set.sides) {
         const f = files.get(side.key)!;
@@ -460,3 +485,11 @@ export function exportRepsCsv(w: WorkoutSummary): File {
 const q = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
 
 export type { Placement };
+
+// the rep-learning module reads set activation through these
+registerWorkoutsDir(workoutsDir);
+registerLiveChannels(async (wid, span) => {
+  const a = state.active;
+  if (!a || a.meta.id !== wid) return [];
+  return liveChannelsAt(a, span.start - 2000, span.end + 2000, span.start);
+});

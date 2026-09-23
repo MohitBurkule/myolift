@@ -15,6 +15,7 @@ export function SetCard({ set, index, onPress }: { set: LoggedSet; index: number
   const holds = set.sides.reduce((n, s) => n + s.holds.length, 0);
   const w = set.segments ? set.segments.map((g) => `${fmt(g.weight)}×${g.reps}`).join(" → ")
     : set.weight !== null ? `${fmt(set.weight)} ${set.unit}${set.assisted ? " assist" : ""} × ${set.reps}` : `${set.reps} reps`;
+  const plus = set.partials ? ` + ${set.partials} partial${set.partials > 1 ? "s" : ""}` : "";
   const partial = set.ranges.top + set.ranges.bottom + set.ranges.mid;
   const breakdown = partial ? [`${set.ranges.full} full`, set.ranges.top && `${set.ranges.top} top half`, set.ranges.bottom && `${set.ranges.bottom} bottom half`, set.ranges.mid && `${set.ranges.mid} middle`].filter(Boolean).join(" · ") : "";
   const ex = findExercise(set.exerciseId);
@@ -30,7 +31,8 @@ export function SetCard({ set, index, onPress }: { set: LoggedSet; index: number
           {set.edited ? <Pill text="edited" /> : null}
         </View>
         <Text style={{ color: t.ink, fontSize: 17, fontWeight: "700", fontVariant: ["tabular-nums"] }}>
-          {w}{left && right ? <Text style={{ color: t.muted, fontSize: 13, fontWeight: "400" }}>{`   L ${left.reps.length} · R ${right.reps.length}`}</Text> : null}
+          {w}{plus ? <Text style={{ color: t.muted, fontSize: 15, fontWeight: "600" }}>{plus}</Text> : null}
+          {left && right && left.reps.length !== right.reps.length ? <Text style={{ color: t.muted, fontSize: 13, fontWeight: "400" }}>{`   L ${left.reps.length} · R ${right.reps.length}`}</Text> : null}
         </Text>
         {breakdown ? <Text style={{ color: t.ink, fontSize: 13 }}>{breakdown} <Text style={{ color: t.muted }}>(estimated range)</Text></Text> : null}
         <Text style={{ color: t.muted, fontSize: 13, fontVariant: ["tabular-nums"] }}>

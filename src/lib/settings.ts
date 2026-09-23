@@ -3,7 +3,7 @@ import { File, Paths } from "expo-file-system";
 import type { BandId } from "../core/dsp";
 import type { Calibration } from "../core/calibration";
 import type { Placement, Unit } from "../core/log";
-import type { Reference } from "../core/workout";
+import type { Reference, RepParams } from "../core/workout";
 import type { Fingerprint, Labelled } from "../core/placement";
 import type { SensorSpot } from "../core/sensorspot";
 
@@ -47,6 +47,17 @@ export interface Settings {
   stacks: Record<string, number[]>;
   /** one arm at a time per exercise id (overrides the default from the name) */
   unilateral: Record<string, boolean>;
+  /** rep counting per exercise id: mode + settings learned from the user's corrections */
+  repProfiles: Record<string, RepProfile>;
+}
+
+export interface RepProfile {
+  params: RepParams;
+  /** corrected sets: workout id, set start (ms in that workout), true full reps */
+  labels: { wid: string; setStart: number; setEnd: number; full: number }[];
+  /** total |detected - corrected| over the labels with the learned settings */
+  error: number;
+  at: number;
 }
 
 const DEFAULTS: Settings = {
@@ -76,6 +87,7 @@ const DEFAULTS: Settings = {
   placementPhotos: {},
   stacks: {},
   unilateral: {},
+  repProfiles: {},
 };
 
 const file = () => new File(Paths.document, "settings.json");

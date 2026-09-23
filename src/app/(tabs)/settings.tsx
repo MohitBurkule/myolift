@@ -5,6 +5,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Native from "../../../modules/myoblue-native";
 import { Body, Button, Card, Choice, Label, Title, Toggle } from "../../components/ui";
 import { removeSensor } from "../../lib/sensors";
+import { resetProfile } from "../../lib/reps";
+import { shortName } from "../../lib/exercises";
 import { updateSettings, useSettings } from "../../lib/settings";
 import { useTheme } from "../../lib/theme";
 import { APP_VERSION } from "../../lib/workout";
@@ -62,6 +64,21 @@ export default function SettingsScreen() {
             <Button title="Forget" small onPress={() => removeSensor(k.id)} />
           </View>
         )) : <Body muted>No saved sensors.</Body>}
+      </Card>
+
+      <Label>Rep counting</Label>
+      <Card style={card}>
+        <Body muted style={{ fontSize: 13 }}>Each exercise learns how its reps look in the EMG from the counts you correct (open a set → Full reps → Save & learn).</Body>
+        {Object.entries(s.repProfiles).map(([id, p]) => (
+          <View key={id} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: t.ink, fontWeight: "600" }}>{shortName({ id, name: id.replace(/_/g, " ") })}</Text>
+              <Text style={{ color: t.muted, fontSize: 12 }}>{p.params.mode === "dip" ? "lockout dips" : "peaks"} · {p.labels.length} corrected set{p.labels.length === 1 ? "" : "s"}{p.labels.length ? ` · off by ${p.error} in total` : ""}</Text>
+            </View>
+            <Button small title="Reset" onPress={() => resetProfile(id)} />
+          </View>
+        ))}
+        {!Object.keys(s.repProfiles).length ? <Body muted>Nothing learned yet.</Body> : null}
       </Card>
 
       <Label>My exercises</Label>

@@ -74,6 +74,8 @@ export interface DetectOptions {
   minSetS: number;
   /** minimum reps for a set to count */
   minReps: number;
+  /** rep settings for a set starting at time t (the exercise's learned profile) */
+  repParams?: (t: number) => RepParams;
 }
 
 export const DEFAULT_DETECT: DetectOptions = { restGapS: 6, minSetS: 3, minReps: 2 };
@@ -124,6 +126,8 @@ export interface Rep {
   valleyAfter?: number;
   /** estimated range of motion (from activation, not joint angle) */
   range?: RepRange;
+  /** dip-mode exercises: the moment of lockout */
+  lockoutAt?: number;
 }
 
 export interface Hold {
@@ -152,67 +156,106 @@ function quantile(values: number[], q: number) {
  * found too; each rep is then classified by how high it peaks and how far it relaxes
  * compared with the set's full reps (see classifyRange). A long hold is one peak, so it counts once.
  */
-/** Rep detection knobs (exported for tuning against recorded data). */
-export const REP_TUNING = { promFrac: 0.3, sepS: 0.8, usePeriod: false, periodFrac: 0.4, smooth: 10 };
+/**
+ * How reps show up for an exercise.
+ *  peak: a rep is an activation peak (cable pushdowns, curls: activation is highest when contracted)
+ *  dip:  a rep is a drop in activation (machine pushdowns: at lockout the joints and machine hold the
+ *        load and the muscle relaxes). Deep dips are full reps, shallow ones (half pushes) partials.
+ * promFrac: how far (share of the set's range) a rep must stand out; depth: for dips, how close to
+ * the set's floor a dip must reach to count as a full lockout (0 = the floor, 1 = the top).
+ * Learned per exercise from the user's rep corrections (see tuneRepParams).
+ */
+export interface RepParams { mode: "peak" | "dip"; promFrac: number; depth: number }
+export const DEFAULT_REP: RepParams = { mode: "peak", promFrac: 0.3, depth: 0.38 };
+// learned from the first real machine-pushdown sets (user estimate ~6 and ~2-3 lockouts)
+export const DEFAULT_DIP: RepParams = { mode: "dip", promFrac: 0.38, depth: 0.35 };
+const SEP_S = 0.8, SMOOTH = 10;
 
-export function detectReps(act: Activation, span: Span): Rep[] {
-  const { a, b } = slice(act, span);
-  const x = movingAverage(act.v.subarray(a, b) as Float32Array, REP_TUNING.smooth); // 240 ms
+/** Prominent maxima of y (NaN-aware) with boundaries at the lowest point between neighbours. */
+function prominentPeaks(y: Float32Array, promFrac: number) {
   const vals: number[] = [];
-  for (let i = 0; i < x.length; i++) if (x[i] === x[i]) vals.push(x[i]);
-  if (vals.length < ACT_HZ) return [];
+  for (let i = 0; i < y.length; i++) if (y[i] === y[i]) vals.push(y[i]);
+  if (vals.length < ACT_HZ) return null;
   const p10 = quantile(vals, 0.1), p95 = quantile(vals, 0.95), range = p95 - p10;
-  if (range < 3) return [];
-  const n = x.length;
-  // the set's own rhythm: rep period from the autocorrelation (as in RecoFit's rep counter)
-  const period = REP_TUNING.usePeriod ? repPeriod(x) : null;
+  if (range < 3) return null;
+  const n = y.length;
   // a rep swings a good part of the set's range; bumps on a plateau are much smaller
-  const minProm = Math.max(REP_TUNING.promFrac * range, 3), minLevel = p10 + 0.25 * range;
-  const minSep = Math.round(Math.max(REP_TUNING.sepS, period ? REP_TUNING.periodFrac * period : 0) * ACT_HZ);
-  const at = (i: number) => (x[i] === x[i] ? x[i] : -Infinity);
-  // local maxima (plateaus: first sample)
+  const minProm = Math.max(promFrac * range, 3), minLevel = p10 + 0.25 * range;
+  const minSep = Math.round(SEP_S * ACT_HZ);
+  const at = (i: number) => (y[i] === y[i] ? y[i] : -Infinity);
   let peaks: number[] = [];
   for (let i = 1; i < n - 1; i++) {
     const v = at(i);
-    if (v < minLevel) continue;
-    if (v > at(i - 1) && v >= at(i + 1)) peaks.push(i);
+    if (v >= minLevel && v > at(i - 1) && v >= at(i + 1)) peaks.push(i);
   }
-  // prominence
   const prom = (i: number) => {
     const v = at(i);
     let l = v, r = v;
-    for (let j = i - 1; j >= 0 && at(j) <= v; j--) l = Math.min(l, at(j) === -Infinity ? l : at(j));
-    for (let j = i + 1; j < n && at(j) <= v; j++) r = Math.min(r, at(j) === -Infinity ? r : at(j));
+    for (let j = i - 1; j >= 0 && at(j) <= v; j--) if (at(j) !== -Infinity) l = Math.min(l, at(j));
+    for (let j = i + 1; j < n && at(j) <= v; j++) if (at(j) !== -Infinity) r = Math.min(r, at(j));
     return v - Math.max(l, r);
   };
   peaks = peaks.filter((i) => prom(i) >= minProm);
-  // enforce minimum spacing, keeping the higher peak
   const kept: number[] = [];
   for (const i of peaks) {
     const last = kept[kept.length - 1];
     if (last !== undefined && i - last < minSep) { if (at(i) > at(last)) kept[kept.length - 1] = i; }
     else kept.push(i);
   }
-  // boundaries: lowest point between neighbouring peaks; outer edges: where activity starts / ends
   const valley = (i: number, j: number) => { let m = i; for (let k = i; k <= j; k++) if (at(k) < at(m)) m = k; return m; };
   const onLevel = p10 + 0.2 * range;
-  const t = (j: number) => act.t0 + (a + j) * ACT_DT;
-  const reps: Rep[] = [];
-  for (let k = 0; k < kept.length; k++) {
-    const p = kept[k];
+  const bounds = kept.map((p, k) => {
     let s0: number, e0: number;
     if (k === 0) { s0 = p; while (s0 > 0 && at(s0 - 1) > onLevel) s0--; } else s0 = valley(kept[k - 1], p);
     if (k === kept.length - 1) { e0 = p; while (e0 < n - 1 && at(e0 + 1) > onLevel) e0++; } else e0 = valley(p, kept[k + 1]);
-    if ((e0 - s0) * ACT_DT < 400) continue;
-    let sum = 0, c = 0;
-    for (let j = s0; j <= e0; j++) if (x[j] === x[j]) { sum += x[j]; c++; }
-    reps.push({
-      start: t(s0), peakT: t(p), end: t(e0), peak: at(p), mean: sum / Math.max(1, c),
-      riseS: ((p - s0) * ACT_DT) / 1000, fallS: ((e0 - p) * ACT_DT) / 1000,
-      valleyBefore: at(s0), valleyAfter: at(e0),
+    return { p, s0, e0 };
+  }).filter((r) => (r.e0 - r.s0) * ACT_DT >= 400);
+  return { bounds, p10, range, at };
+}
+
+/**
+ * Reps in a set: prominent activation peaks (or dips, for exercises where the muscle relaxes at
+ * lockout), at least 0.8 s apart. Small up-and-down movements are found too and classified by range.
+ * A long hold is one peak, so it counts once.
+ */
+export function detectReps(act: Activation, span: Span, params: RepParams = DEFAULT_REP): Rep[] {
+  const { a, b } = slice(act, span);
+  const x = movingAverage(act.v.subarray(a, b) as Float32Array, SMOOTH);
+  const t = (j: number) => act.t0 + (a + j) * ACT_DT;
+  if (params.mode === "dip") {
+    // flip the signal inside the set; drop the first/last second (ramp in / out are not lockouts)
+    const trim = ACT_HZ, y = new Float32Array(x.length).fill(NaN);
+    for (let i = trim; i < x.length - trim; i++) y[i] = x[i] === x[i] ? -x[i] : NaN;
+    const f = prominentPeaks(y, params.promFrac);
+    if (!f) return [];
+    let lo = Infinity, hi = -Infinity;
+    for (let i = trim; i < x.length - trim; i++) if (x[i] === x[i]) { lo = Math.min(lo, x[i]); hi = Math.max(hi, x[i]); }
+    const span100 = Math.max(hi - lo, 1e-6);
+    return f.bounds.map(({ p, s0, e0 }) => {
+      let peak = -Infinity, pk = p, sum = 0, c = 0;
+      for (let j = s0; j <= e0; j++) if (x[j] === x[j]) { sum += x[j]; c++; if (x[j] > peak) { peak = x[j]; pk = j; } }
+      const depth = (x[p] - lo) / span100;
+      return {
+        start: t(s0), peakT: t(p), end: t(e0), peak, mean: sum / Math.max(1, c),
+        // for dip exercises: rise = push until lockout, fall = back up to the next rep
+        riseS: ((p - s0) * ACT_DT) / 1000, fallS: ((e0 - p) * ACT_DT) / 1000,
+        valleyBefore: x[s0], valleyAfter: x[e0], lockoutAt: t(p),
+        range: depth <= params.depth ? "full" : "mid",
+      } as Rep;
     });
   }
-  classifyRange(reps, p10);
+  const f = prominentPeaks(x, params.promFrac);
+  if (!f) return [];
+  const reps: Rep[] = f.bounds.map(({ p, s0, e0 }) => {
+    let sum = 0, c = 0;
+    for (let j = s0; j <= e0; j++) if (x[j] === x[j]) { sum += x[j]; c++; }
+    return {
+      start: t(s0), peakT: t(p), end: t(e0), peak: f.at(p), mean: sum / Math.max(1, c),
+      riseS: ((p - s0) * ACT_DT) / 1000, fallS: ((e0 - p) * ACT_DT) / 1000,
+      valleyBefore: f.at(s0), valleyAfter: f.at(e0),
+    };
+  });
+  classifyRange(reps, f.p10, params.depth);
   return reps;
 }
 
@@ -254,7 +297,7 @@ export type RepRange = "full" | "top" | "bottom" | "mid";
  * partials peak high but never relax; bottom-half partials relax but never peak.
  * For pushdowns and curls triceps/biceps activation is highest near the contracted end.
  */
-export function classifyRange(reps: Rep[], base: number) {
+export function classifyRange(reps: Rep[], base: number, relaxMax = 0.38) {
   if (!reps.length) return;
   const peaks = reps.map((r) => r.peak).sort((x, y) => x - y);
   const full = peaks[Math.floor(0.8 * (peaks.length - 1))];
@@ -262,7 +305,7 @@ export function classifyRange(reps: Rep[], base: number) {
   for (const r of reps) {
     const pn = (r.peak - base) / span;
     const vn = (((r.valleyBefore ?? base) + (r.valleyAfter ?? base)) / 2 - base) / span;
-    r.range = pn >= 0.72 ? (vn <= 0.38 ? "full" : "top") : vn <= 0.38 ? "bottom" : "mid";
+    r.range = pn >= 0.72 ? (vn <= relaxMax ? "full" : "top") : vn <= relaxMax ? "bottom" : "mid";
   }
 }
 
@@ -399,8 +442,8 @@ function repsFromTiming(ch: Channel, timing: Rep[]): Rep[] {
   });
 }
 
-function sideResult(ch: Channel, span: Span, timing?: Rep[]): SideResult {
-  const reps = timing ? repsFromTiming(ch, timing) : detectReps(ch.act, span);
+function sideResult(ch: Channel, span: Span, timing?: Rep[], params?: RepParams): SideResult {
+  const reps = timing ? repsFromTiming(ch, timing) : detectReps(ch.act, span, params);
   const setPeak = reps.length ? Math.max(...reps.map((r) => r.peak)) : 0;
   const holds = detectHolds(ch.act, span, setPeak);
   const { a, b } = slice(ch.act, span);
@@ -453,14 +496,15 @@ export function detectSets(channels: Channel[], opt: DetectOptions = DEFAULT_DET
   const out: DetectedSet[] = [];
   for (const g of groups) {
     const members = channels.filter((c) => g.keys.has(c.key));
+    const params = opt.repParams?.(g.start) ?? DEFAULT_REP;
     // both arms on the same muscle: find the reps once on their average (more robust, and both
     // arms agree on the count), then measure each arm on its own signal
     let timing: Rep[] | undefined;
     if (members.length === 2 && members[0].muscle === members[1].muscle && members[0].side !== members[1].side) {
       const combined = averageActivation(members[0].act, members[1].act);
-      timing = detectReps(combined, g);
+      timing = detectReps(combined, g, params);
     }
-    const sides = members.map((c) => sideResult(c, g, timing));
+    const sides = members.map((c) => sideResult(c, g, timing, params));
     const reps = Math.max(0, ...sides.map((s) => s.reps.length));
     if (reps < opt.minReps) continue;
     out.push({ start: g.start, end: g.end, sides, reps, flags: formFlags(sides) });
@@ -468,7 +512,7 @@ export function detectSets(channels: Channel[], opt: DetectOptions = DEFAULT_DET
   return out;
 }
 
-function averageActivation(a: Activation, b: Activation): Activation {
+export function averageActivation(a: Activation, b: Activation): Activation {
   const t0 = Math.min(a.t0, b.t0), t1 = Math.max(a.t0 + a.v.length * ACT_DT, b.t0 + b.v.length * ACT_DT);
   const n = Math.round((t1 - t0) / ACT_DT), v = new Float32Array(n);
   for (let i = 0; i < n; i++) {

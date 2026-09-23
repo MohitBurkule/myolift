@@ -9,6 +9,7 @@ import { SetCard } from "../../components/SetCard";
 import { Body, Button, Card, Label, Pill, Title } from "../../components/ui";
 import { findExercise, isUnilateral, shortName } from "../../lib/exercises";
 import { stackFor, stepStack } from "../../core/stack";
+import { defaultMode, setMode } from "../../lib/reps";
 import { addDemoSensor, nativeAvailable, useSensors } from "../../lib/sensors";
 import { updateSettings, useSettings } from "../../lib/settings";
 import { clock, useTheme } from "../../lib/theme";
@@ -97,6 +98,15 @@ export default function WorkoutScreen() {
                 </Pressable>
               );
             })()}
+            {ex ? (() => {
+              const mode = s.repProfiles[ex.id]?.params.mode ?? defaultMode(ex.id, ex.name);
+              return (
+                <Pressable onPress={() => setMode(ex.id, ex.name, mode === "dip" ? "peak" : "dip")} accessibilityRole="button" accessibilityLabel={mode === "dip" ? "Counts lockout dips" : "Counts peaks"}
+                  style={{ borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, minHeight: 32, justifyContent: "center", borderColor: t.line, backgroundColor: t.panel }}>
+                  <Text style={{ color: t.ink, fontWeight: "600" }}>{mode === "dip" ? "Counts lockout dips" : "Counts peaks"} ⇄</Text>
+                </Pressable>
+              );
+            })() : null}
             {ex?.assisted ? <Text style={{ color: t.muted, fontSize: 13 }}>weight = assistance</Text> : null}
           </View>
           <WeightControl equipment={ex?.equipment ?? null} exerciseId={ex?.id ?? null} />
