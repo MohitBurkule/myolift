@@ -135,11 +135,21 @@ function SensorStrip() {
               <View style={{ width: `${Math.min(100, pct ?? 0)}%`, height: "100%", backgroundColor: p.side === "left" ? t.sensors[0] : t.sensors[1] }} />
             </View>
             <Text style={{ color: t.muted, fontSize: 12, fontVariant: ["tabular-nums"] }}>{pct === null ? (ref ? "–" : "not calibrated") : `${pct.toFixed(0)}% of max`}</Text>
+            <PlacementBadge status={s.refs[refKey(p)]?.placement?.status} />
           </Card>
         );
       })}
     </View>
   );
+}
+
+/** Result of the last placement check for this sensor. */
+function PlacementBadge({ status }: { status?: string }) {
+  const t = useTheme();
+  if (!status) return null;
+  const label = { match: "same spot ✓", differs: "placement differs", contact: "poor contact", "no-reference": "reference set" }[status] ?? status;
+  const color = status === "match" || status === "no-reference" ? t.ok : t.warn;
+  return <Text style={{ color, fontSize: 12, fontWeight: "600" }}>{label}</Text>;
 }
 
 function WeightControl() {

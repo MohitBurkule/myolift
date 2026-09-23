@@ -14,6 +14,7 @@ A gym log that fills itself in from EMG. Wear two ELEMYO **MYOblue** sensors (no
   - left/right symmetry
   - form flags: rushed reps, uneven reps, activation falling off, one arm weaker, controlled tempo
 - **Per-session calibration** (4 s relaxed, 4 s squeeze), because dry electrodes sit differently every time. That makes "% of max" comparable between sessions. It's required again after moving a sensor (e.g. triceps → biceps).
+- **Placement check.** Calibration includes a few movements, each working a different source: squeeze (the triceps), pushing the arm back (the long head, which crosses the shoulder) and lifting the arm out (only the deltoid). The pattern is compared with your reference placement, and the app reports: same spot ✓, probably higher (shoulder crosstalk), more outer or inner (long-head response), moved along the arm or rotated (signal size and frequency), or poor contact (resting noise and mains hum). Record a deliberately wrong placement once ("2 cm higher", "rotated"…) and it learns what that looks like on your arm.
 - **Raw data kept.** Every workout keeps the full raw EMG, so it can be re-analysed later. Export sets and reps as CSV.
 - **Records in the background** (screen off, calls, other apps) in an Android foreground service.
 

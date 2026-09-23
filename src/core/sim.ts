@@ -66,7 +66,7 @@ export function simulateArm(sets: SimSet[], arm: SimArm, seconds: number, fs = 9
  */
 
 export class DemoArm {
-  hint: "rest" | "mvc" | null = null;
+  hint: "rest" | "mvc" | "push" | "abduct" | "raise" | null = null;
   private seq = 0;
   private i = 0;
   private lp = 0;
@@ -80,6 +80,9 @@ export class DemoArm {
   private level(t: number): { a: number; fat: number } {
     if (this.hint === "rest") return { a: 0, fat: 0 };
     if (this.hint === "mvc") return { a: 1, fat: 0 };
+    if (this.hint === "push") return { a: 0.45, fat: 0 };
+    if (this.hint === "abduct") return { a: 0.07, fat: 0 };
+    if (this.hint === "raise") return { a: 0.05, fat: 0 };
     const cyc = t % 60, start = 8;
     const rep = Math.floor((cyc - start) / 2.8);
     if (cyc < start || rep >= 10) return { a: 0, fat: 0 };

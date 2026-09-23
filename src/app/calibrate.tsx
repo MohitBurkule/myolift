@@ -1,108 +1,198 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useKeepAwake } from "expo-keep-awake";
 import { summarize, verdict, VERDICT_LABEL, type Calibration } from "../core/calibration";
 import type { Placement } from "../core/log";
-import { Body, Button, Card, Title } from "../components/ui";
+import { compare, fingerprint, OFFSET_LABELS, protocol, type Fingerprint, type Step, type StepCapture, type StepId, type Verdict } from "../core/placement";
+import { Body, Button, Card, Pill, Title, Toggle } from "../components/ui";
 import { getSensor, getSensors, setDemoHint } from "../lib/sensors";
-import { getSettings } from "../lib/settings";
+import { getSettings, updateSettings, useSettings } from "../lib/settings";
 import { useTheme } from "../lib/theme";
 import { addEvent } from "../lib/workout";
 
-const HOW: Record<string, string> = {
-  triceps: "Straighten your arm(s) hard and tense the triceps, like locking out a pushdown",
-  biceps: "Bend your arm(s) to 90° and flex the biceps as hard as you can",
-  forearms: "Make a fist and squeeze as hard as you can",
-};
-
-type Phase = { kind: "intro" } | { kind: "run"; title: string; text: string; prep: number; left: number } | { kind: "done"; results: [Placement, Calibration | null][] };
+type Result = { p: Placement; cal: Calibration | null; fp: Fingerprint | null; v: Verdict | null };
+type Phase = { kind: "intro" } | { kind: "run"; step: Step; index: number; total: number; prep: number; left: number } | { kind: "done"; results: Result[] };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const posKey = (p: Placement) => `${p.muscle}|${p.side}`;
 
+/**
+ * Calibration + placement check. Every step captures envelope and raw EMG from all placed
+ * sensors at once. Rest + squeeze give the calibration (% of max); the other movements give
+ * the placement fingerprint that is compared with the stored reference for that muscle and side.
+ */
 export default function CalibrateScreen() {
   const t = useTheme();
   useKeepAwake();
-  const placements = getSettings().placements.filter((p) => getSensor(p.sensorId));
+  const s = useSettings();
+  const placements = s.placements.filter((p) => getSensor(p.sensorId));
+  const muscles = [...new Set(placements.map((p) => p.muscle))];
+  // one protocol for everyone when all sensors are on the same muscle; mixed muscles: rest + squeeze only
+  const steps = muscles.length === 1 ? protocol(muscles[0], !s.placementCheck) : protocol("", true);
   const [phase, setPhase] = useState<Phase>({ kind: "intro" });
   const running = useRef(false);
-  useEffect(() => () => { running.current = false; setDemoHint(null); for (const s of getSensors()) s.capture = null; }, []);
-  const muscles = [...new Set(placements.map((p) => p.muscle))];
-  const squeeze = muscles.map((m) => HOW[m] ?? `Tense the ${m} as hard as you can`).join(". ");
+  useEffect(() => () => { running.current = false; setDemoHint(null); for (const x of getSensors()) { x.capture = null; x.captureRaw = null; } }, []);
 
-  async function step(title: string, text: string, hint: "rest" | "mvc", secs: number) {
-    for (let i = 3; i > 0; i--) { if (!running.current) return null; setPhase({ kind: "run", title, text, prep: i, left: secs }); await sleep(1000); }
-    const caps = new Map(placements.map((p) => { const s = getSensor(p.sensorId)!; s.capture = []; return [p.sensorId, s.capture]; }));
-    setDemoHint(hint);
+  async function runStep(step: Step, index: number) {
+    for (let i = 2; i > 0; i--) { if (!running.current) return null; setPhase({ kind: "run", step, index, total: steps.length, prep: i, left: step.seconds }); await sleep(1000); }
+    const caps = new Map<string, StepCapture>();
+    for (const p of placements) { const x = getSensor(p.sensorId)!; x.capture = []; x.captureRaw = []; caps.set(p.sensorId, { env: x.capture, raw: x.captureRaw }); }
+    setDemoHint(step.id);
     const t0 = Date.now();
-    while (running.current && Date.now() - t0 < secs * 1000) { setPhase({ kind: "run", title, text, prep: 0, left: secs - (Date.now() - t0) / 1000 }); await sleep(100); }
+    while (running.current && Date.now() - t0 < step.seconds * 1000) { setPhase({ kind: "run", step, index, total: steps.length, prep: 0, left: step.seconds - (Date.now() - t0) / 1000 }); await sleep(100); }
     setDemoHint(null);
-    for (const p of placements) { const s = getSensor(p.sensorId); if (s) s.capture = null; }
+    for (const p of placements) { const x = getSensor(p.sensorId); if (x) { x.capture = null; x.captureRaw = null; } }
     return running.current ? caps : null;
   }
 
   async function run() {
     running.current = true;
-    const rest = await step("1 of 2 · Relax", "Let the arm(s) hang completely relaxed", "rest", 4);
-    if (!rest) return;
-    const mvc = await step("2 of 2 · Squeeze", squeeze, "mvc", 4);
-    if (!mvc) return;
+    const all: Partial<Record<StepId, Map<string, StepCapture>>> = {};
+    for (let i = 0; i < steps.length; i++) {
+      const caps = await runStep(steps[i], i);
+      if (!caps) return;
+      all[steps[i].id] = caps;
+    }
     running.current = false;
-    const results = placements.map((p) => [p, summarize(rest.get(p.sensorId) ?? [], mvc.get(p.sensorId) ?? [], { band: "emg", notch: 50 })] as [Placement, Calibration | null]);
+    const cfg = getSettings();
+    const results: Result[] = placements.map((p) => {
+      const per: Partial<Record<StepId, StepCapture>> = {};
+      for (const id of Object.keys(all) as StepId[]) { const c = all[id]!.get(p.sensorId); if (c) per[id] = c; }
+      const cal = summarize(per.rest?.env ?? [], per.mvc?.env ?? [], { band: "emg", notch: 50 });
+      const fs = getSensor(p.sensorId)?.rate || 975;
+      const fp = cfg.placementCheck ? fingerprint(per, fs > 500 ? fs : 975) : null;
+      const saved = cfg.placementRefs[posKey(p)];
+      const v = fp ? compare(fp, saved?.ref ?? null, saved?.offsets ?? []) : null;
+      return { p, cal, fp, v };
+    });
     setPhase({ kind: "done", results });
   }
 
-  function save(results: [Placement, Calibration | null][]) {
-    for (const [p, c] of results) {
-      if (!c) continue;
-      addEvent({ type: "calibration", sensorId: p.sensorId, muscle: p.muscle, side: p.side, ref: { mvcRms: c.mvcRms, restRms: c.restRms, restSd: c.restSd }, snrDb: c.snrDb });
+  function save(results: Result[]) {
+    const refs = { ...getSettings().placementRefs };
+    for (const r of results) {
+      if (!r.cal) continue;
+      // first check at a position becomes its reference automatically
+      if (r.fp && !refs[posKey(r.p)]) refs[posKey(r.p)] = { ref: r.fp, at: Date.now(), offsets: [] };
+      addEvent({
+        type: "calibration", sensorId: r.p.sensorId, muscle: r.p.muscle, side: r.p.side,
+        ref: { mvcRms: r.cal.mvcRms, restRms: r.cal.restRms, restSd: r.cal.restSd }, snrDb: r.cal.snrDb,
+        fingerprint: r.fp ?? undefined, placement: r.v ? { status: r.v.status, similarity: r.v.similarity, messages: r.v.messages } : undefined,
+      });
     }
+    updateSettings({ placementRefs: refs });
     router.back();
+  }
+
+  function setReference(r: Result) {
+    if (!r.fp) return;
+    const refs = { ...getSettings().placementRefs };
+    refs[posKey(r.p)] = { ref: r.fp, at: Date.now(), offsets: refs[posKey(r.p)]?.offsets ?? [] };
+    updateSettings({ placementRefs: refs });
+    setPhase((ph) => ph.kind === "done" ? { kind: "done", results: ph.results.map((x) => x === r ? { ...x, v: compare(r.fp!, r.fp!, refs[posKey(r.p)].offsets) } : x) } : ph);
+  }
+
+  function label(r: Result, text: string) {
+    if (!r.fp) return;
+    const refs = { ...getSettings().placementRefs };
+    const cur = refs[posKey(r.p)];
+    if (!cur) return;
+    refs[posKey(r.p)] = { ...cur, offsets: [...cur.offsets.filter((o) => o.label !== text), { label: text, fp: r.fp }] };
+    updateSettings({ placementRefs: refs });
   }
 
   if (phase.kind === "intro") return (
     <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={{ padding: 16, gap: 14 }}>
-      <Body>Dry electrodes touch the skin a little differently every time, so the raw signal size changes between sessions. Calibrating makes everything "% of today's max", which is what makes sessions comparable.</Body>
-      <Body muted style={{ fontSize: 13 }}>Two steps of 4 seconds for all placed sensors at once: relax, then squeeze as hard as you can. No weight needed. Redo it whenever you move a sensor.</Body>
+      <Body>Calibrating makes everything "% of today's max", so sessions compare even though dry electrodes sit a little differently each time.</Body>
+      {s.placementCheck ? (
+        <Body>The placement check adds a few movements. Each one works a different muscle or head, so the app can tell whether the sensor is where it was last time: higher, more outer or inner, rotated, or just poorly in contact.</Body>
+      ) : null}
+      <Card style={{ padding: 12, gap: 6 }}>
+        {steps.map((st, i) => <Text key={st.id} style={{ color: t.ink }}>{i + 1}. <Text style={{ fontWeight: "700" }}>{st.title}</Text> <Text style={{ color: t.muted }}>({st.seconds} s): {st.text}</Text></Text>)}
+      </Card>
       <Card style={{ padding: 12, gap: 4 }}>
-        {placements.map((p) => <Text key={p.sensorId} style={{ color: t.ink }}>• {p.side} {p.muscle} <Text style={{ color: t.muted }}>({p.sensorName.replace(/_/g, " ")})</Text></Text>)}
+        {placements.map((p) => {
+          const hasRef = !!s.placementRefs[posKey(p)];
+          return <Text key={p.sensorId} style={{ color: t.ink }}>• {p.side} {p.muscle} <Text style={{ color: t.muted }}>{hasRef ? "· has a reference placement" : "· no reference yet (this one becomes it)"}</Text></Text>;
+        })}
         {!placements.length ? <Body muted>No connected sensor has a position yet.</Body> : null}
       </Card>
+      <Toggle label="Placement check" hint="Adds the extra movements (about 12 s)." value={s.placementCheck} onChange={(v) => updateSettings({ placementCheck: v })} />
+      {muscles.length > 1 ? <Body muted style={{ fontSize: 13 }}>Sensors are on different muscles, so only rest + squeeze run.</Body> : null}
       <Button title="Start" variant="primary" disabled={!placements.length} onPress={run} />
     </ScrollView>
   );
+
   if (phase.kind === "run") return (
     <View style={{ flex: 1, backgroundColor: t.bg, padding: 24, justifyContent: "center", gap: 22 }}>
-      <Body muted style={{ textAlign: "center" }}>{phase.title}</Body>
-      <Title style={{ textAlign: "center", fontSize: 24 }}>{phase.text}</Title>
+      <Body muted style={{ textAlign: "center" }}>{phase.index + 1} of {phase.total} · {phase.step.title}</Body>
+      <Title style={{ textAlign: "center", fontSize: 24 }}>{phase.step.text}</Title>
       <View style={{ height: 12, borderRadius: 999, backgroundColor: t.panel2, overflow: "hidden" }}>
-        <View style={{ width: `${phase.prep ? 0 : (1 - phase.left / 4) * 100}%`, height: "100%", backgroundColor: t.accent }} />
+        <View style={{ width: `${phase.prep ? 0 : (1 - phase.left / phase.step.seconds) * 100}%`, height: "100%", backgroundColor: t.accent }} />
       </View>
       <Text style={{ color: t.ink, fontSize: 52, fontWeight: "800", textAlign: "center", fontVariant: ["tabular-nums"] }}>{phase.prep ? `Get ready… ${phase.prep}` : Math.ceil(phase.left)}</Text>
       <Button title="Cancel" onPress={() => { running.current = false; router.back(); }} />
     </View>
   );
+
   return (
-    <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={{ padding: 16, gap: 14 }}>
+    <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
       <Title>Results</Title>
-      <Card>
-        {phase.results.map(([p, c]) => {
-          const v = c ? verdict(c) : null;
-          return (
-            <View key={p.sensorId} style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: t.line, gap: 4 }}>
-              <View style={{ flexDirection: "row" }}>
-                <Text style={{ color: t.ink, fontWeight: "700", flex: 1 }}>{p.side} {p.muscle}</Text>
-                {v ? <Text style={{ color: v === "good" ? t.ok : v === "ok" ? t.warn : t.bad, fontWeight: "700" }}>{VERDICT_LABEL[v]}</Text> : null}
-              </View>
-              <Text style={{ color: c ? t.muted : t.bad, fontVariant: ["tabular-nums"] }}>{c ? `Rest ${c.restRms.toFixed(1)} µV · max ${c.mvcRms.toFixed(0)} µV · ${c.snrDb.toFixed(0)} dB` : "No data received"}</Text>
-            </View>
-          );
-        })}
-      </Card>
+      {phase.results.map((r) => <ResultCard key={r.p.sensorId} r={r} onReference={() => setReference(r)} onLabel={(l) => label(r, l)} />)}
       <Body muted style={{ fontSize: 13 }}>Below 10 dB usually means poor skin contact: press the sensor on firmly or move it onto the muscle belly and redo.</Body>
       <View style={{ flexDirection: "row", gap: 8 }}>
         <Button title="Redo" style={{ flex: 1 }} onPress={run} />
-        <Button title="Save" variant="primary" style={{ flex: 1 }} disabled={!phase.results.some(([, c]) => c)} onPress={() => save(phase.results)} />
+        <Button title="Save" variant="primary" style={{ flex: 1 }} disabled={!phase.results.some((r) => r.cal)} onPress={() => save(phase.results)} />
       </View>
     </ScrollView>
   );
 }
+
+function ResultCard({ r, onReference, onLabel }: { r: Result; onReference: () => void; onLabel: (l: string) => void }) {
+  const t = useTheme();
+  const [labelled, setLabelled] = useState<string | null>(null);
+  const q = r.cal ? verdict(r.cal) : null;
+  const tone = r.v?.status === "match" ? "ok" : r.v?.status === "no-reference" ? "neutral" : "warn";
+  const text = { match: "Same spot ✓", differs: "Placement differs", contact: "Poor contact", "no-reference": "New reference" } as const;
+  return (
+    <Card style={{ padding: 12, gap: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Text style={{ color: t.ink, fontWeight: "700", flex: 1 }}>{r.p.side} {r.p.muscle}</Text>
+        {q ? <Text style={{ color: q === "good" ? t.ok : q === "ok" ? t.warn : t.bad, fontWeight: "700" }}>{VERDICT_LABEL[q]}</Text> : null}
+      </View>
+      <Text style={{ color: r.cal ? t.muted : t.bad, fontVariant: ["tabular-nums"] }}>
+        {r.cal ? `Rest ${r.cal.restRms.toFixed(1)} µV · max ${r.cal.mvcRms.toFixed(0)} µV · ${r.cal.snrDb.toFixed(0)} dB` : "No data received"}
+      </Text>
+      {r.v ? (
+        <View style={{ gap: 6 }}>
+          <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+            <Pill text={text[r.v.status]} tone={tone} />
+            {r.v.similarity !== null ? <Text style={{ color: t.muted, fontSize: 12 }}>{r.v.similarity}% similar to reference</Text> : null}
+          </View>
+          {r.v.messages.map((m, i) => <Text key={i} style={{ color: t.ink, fontSize: 13 }}>• {m}</Text>)}
+          {r.fp ? (
+            <Text style={{ color: t.muted, fontSize: 12, fontVariant: ["tabular-nums"] }}>
+              push-back {fmtR(r.fp.ratios.push)} · arm-out {fmtR(r.fp.ratios.abduct)}{r.fp.ratios.raise !== undefined ? ` · raise ${fmtR(r.fp.ratios.raise)}` : ""} · {r.fp.mdf.toFixed(0)} Hz · hum {(r.fp.hum * 100).toFixed(0)}%
+            </Text>
+          ) : null}
+          {r.v.status !== "no-reference" && r.fp ? (
+            <>
+              <Button small title="Set this as my reference" onPress={onReference} />
+              <Text style={{ color: t.muted, fontSize: 12 }}>Placed it wrong on purpose to teach the app? Say how:</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                {OFFSET_LABELS.map((l) => (
+                  <Pressable key={l} onPress={() => { onLabel(l); setLabelled(l); }} accessibilityRole="button" accessibilityLabel={`This was ${l}`}
+                    style={{ borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, minHeight: 30, justifyContent: "center", borderColor: labelled === l ? t.accent : t.line, backgroundColor: labelled === l ? t.accent + "22" : t.panel }}>
+                    <Text style={{ color: labelled === l ? t.accent : t.ink, fontSize: 13 }}>{labelled === l ? `✓ ${l}` : l}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : null}
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
+const fmtR = (v?: number) => (v === undefined ? "–" : `${Math.round(v * 100)}%`);

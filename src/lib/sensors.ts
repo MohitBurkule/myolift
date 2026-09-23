@@ -37,6 +37,8 @@ export class LiveSensor {
   chain: Chain;
   /** calibration capture sink (envelope samples) */
   capture: number[] | null = null;
+  /** raw µV capture (placement check: mains hum, median frequency) */
+  captureRaw: number[] | null = null;
   /** peak-hold y range, reset by tapping the plot */
   hold: { key: string; ymin: number; ymax: number } | null = null;
   demo: DemoArm | null = null;
@@ -110,7 +112,7 @@ export class LiveSensor {
       this.chain.step(p.uv[i]);
       const e = this.chain.envelope;
       this.push(p.uv[i], this.chain.filtered, e);
-      if (this.capture && e === e) this.capture.push(e);
+      if (this.capture && e === e) { this.capture.push(e); this.captureRaw?.push(p.uv[i]); }
       if (e === e) this.addBin(t - (PER_PACKET - 1 - i) * step, e);
     }
   }
@@ -277,6 +279,6 @@ function stopDemo(s: LiveSensor) {
   demoTimers.delete(s.id);
 }
 
-export function setDemoHint(hint: "rest" | "mvc" | null) {
+export function setDemoHint(hint: DemoArm["hint"]) {
   for (const s of sensors.values()) if (s.demo) s.demo.hint = hint;
 }

@@ -5,6 +5,7 @@
  * started. A weight tapped during a set turns it into a drop set.
  */
 import type { DetectedSet, Reference, Rep, SideResult } from "./workout";
+import type { Fingerprint } from "./placement";
 
 export type Side = "left" | "right";
 export type Unit = "kg" | "lb";
@@ -22,7 +23,7 @@ export type WorkoutEvent =
   /** grip / attachment, e.g. "Rope", "V-bar", "Straight bar", "Underhand" ("" = none) */
   | { t: number; type: "grip"; grip: string }
   | { t: number; type: "placement"; placements: Placement[] }
-  | { t: number; type: "calibration"; sensorId: string; muscle: string; side: Side; ref: Reference; snrDb: number }
+  | { t: number; type: "calibration"; sensorId: string; muscle: string; side: Side; ref: Reference; snrDb: number; fingerprint?: Fingerprint; placement?: { status: string; similarity: number | null; messages: string[] } }
   | { t: number; type: "setEdit"; setStart: number; patch: SetPatch }
   | { t: number; type: "note"; text: string };
 

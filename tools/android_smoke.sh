@@ -40,8 +40,9 @@ tap "Try demo sensors"; sleep 4; shot 02-sensors
 tap "Use this sensor"; sleep 2
 tap "Use this sensor"; sleep 2; shot 03-placed
 tap "Calibrate these positions"; sleep 2
-tap "Start"; sleep 16; shot 04-calibration
+tap "Start"; sleep 30; shot 04-calibration
 has "Results" || fail "calibration results not shown"
+has "New reference" || fail "placement check result not shown"
 tap "Save"; sleep 2
 adb shell input keyevent KEYCODE_BACK; sleep 2
 shot 05-ready

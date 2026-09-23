@@ -3,7 +3,7 @@ import { ScrollView, Text, TextInput, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Native from "../../../modules/myoblue-native";
-import { Body, Button, Card, Choice, Label, Title } from "../../components/ui";
+import { Body, Button, Card, Choice, Label, Title, Toggle } from "../../components/ui";
 import { removeSensor } from "../../lib/sensors";
 import { updateSettings, useSettings } from "../../lib/settings";
 import { useTheme } from "../../lib/theme";
@@ -26,6 +26,21 @@ export default function SettingsScreen() {
         <Choice label="A set ends after this much rest" value={s.restGapS} onChange={(v) => updateSettings({ restGapS: v })}
           options={[4, 6, 8, 12].map((x) => ({ value: x, label: `${x} s` }))} />
         <Body muted style={{ fontSize: 13 }}>Shorter splits long pauses inside a set (e.g. a long hold at the bottom) into separate sets; longer merges quick supersets into one set.</Body>
+      </Card>
+
+      <Label>Placement</Label>
+      <Card style={card}>
+        <Toggle label="Placement check when calibrating" hint="A few extra movements tell whether each sensor is where it was last time." value={s.placementCheck} onChange={(v) => updateSettings({ placementCheck: v })} />
+        {Object.entries(s.placementRefs).map(([k, r]) => (
+          <View key={k} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: t.ink, fontWeight: "600" }}>{k.split("|").reverse().join(" ")} reference</Text>
+              <Text style={{ color: t.muted, fontSize: 12 }}>{new Date(r.at).toLocaleDateString()} · {r.offsets.length} learned offset{r.offsets.length === 1 ? "" : "s"}{r.offsets.length ? `: ${r.offsets.map((o) => o.label).join(", ")}` : ""}</Text>
+            </View>
+            <Button small title="Clear" onPress={() => { const n = { ...s.placementRefs }; delete n[k]; updateSettings({ placementRefs: n }); }} />
+          </View>
+        ))}
+        {!Object.keys(s.placementRefs).length ? <Body muted style={{ fontSize: 13 }}>The first calibration at each position becomes its reference.</Body> : null}
       </Card>
 
       <Label>Background recording</Label>

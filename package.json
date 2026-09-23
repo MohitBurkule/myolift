@@ -32,7 +32,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/workout.test.ts"
+    "test": "tsx tests/workout.test.ts && tsx tests/placement.test.ts"
   },
   "private": true
 }

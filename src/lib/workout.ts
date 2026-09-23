@@ -159,7 +159,7 @@ export function addEvent(e: NewEvent) {
   if (e.type === "weight") updateSettings({ weight: e.value, unit: e.unit, recentWeights: [e.value, ...s.recentWeights.filter((w) => w !== e.value)].slice(0, 8) });
   if (e.type === "grip") updateSettings({ grip: e.grip });
   if (e.type === "placement") updateSettings({ placements: e.placements });
-  if (e.type === "calibration") updateSettings({ refs: { ...s.refs, [refKey(e)]: { ref: e.ref, snrDb: e.snrDb, at: Date.now() } } });
+  if (e.type === "calibration") updateSettings({ refs: { ...s.refs, [refKey(e)]: { ref: e.ref, snrDb: e.snrDb, at: Date.now(), placement: e.placement } } });
   const a = state.active;
   if (!a) { emit({}); return; }
   const ev = { ...e, t: now() - a.origin } as WorkoutEvent;
