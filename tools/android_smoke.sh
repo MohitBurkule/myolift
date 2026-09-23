@@ -51,7 +51,7 @@ dump
 read SX SY < <(find_xy "Sensors") || fail "Sensors button"
 read CX CY < <(find_xy "Calibrate") || fail "Calibrate button"
 END_X=$((CX + (CX - SX))); END_Y=$CY
-tap "Start workout"; sleep 5; alive
+tap "▶ Start"; sleep 5; alive
 adb shell dumpsys activity services $PKG | grep -q "RecordingService" || fail "foreground service not running"
 echo "workout recording"
 sleep 45; shot 06-first-set

@@ -93,7 +93,7 @@ export default function WorkoutScreen() {
         {active ? (
           <Button title="End" variant="stop" style={{ flex: 1 }} onPress={async () => { const id = await endWorkout(); if (id) router.push({ pathname: "/workout/[id]", params: { id } }); }} />
         ) : (
-          <Button title="Start workout" variant="primary" style={{ flex: 1.6 }} disabled={!nativeAvailable || !sensors.length} onPress={() => startWorkout()} />
+          <Button title="▶ Start" variant="primary" style={{ flex: 1.3 }} disabled={!nativeAvailable || !sensors.length} onPress={() => startWorkout()} />
         )}
       </View>
     </View>
