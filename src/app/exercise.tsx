@@ -3,7 +3,7 @@ import { FlatList, Pressable, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { defaultGrip } from "../core/grips";
 import { Body, Button } from "../components/ui";
-import { searchExercises, shortName, type Exercise } from "../lib/exercises";
+import { isUnilateral, searchExercises, shortName, type Exercise } from "../lib/exercises";
 import { getSettings, updateSettings, useSettings } from "../lib/settings";
 import { useTheme } from "../lib/theme";
 import { addEvent } from "../lib/workout";
@@ -15,7 +15,8 @@ export default function ExerciseScreen() {
   const muscles = [...new Set(s.placements.map((p) => p.muscle))];
   const list = useMemo(() => searchExercises(q, muscles), [q, muscles.join(","), s.customExercises.length]);
   const pick = (e: Exercise) => {
-    addEvent({ type: "exercise", exerciseId: e.id, name: e.name });
+    const uni = getSettings().unilateral[e.id] ?? isUnilateral(e);
+    addEvent({ type: "exercise", exerciseId: e.id, name: e.name, unilateral: uni, assisted: !!e.assisted });
     const g = defaultGrip(e.name, e.equipment);
     if (g !== getSettings().grip) addEvent({ type: "grip", grip: g });
     router.back();

@@ -163,4 +163,36 @@ test("offline: recorded rows -> clock fit -> bins -> sets, reps and fatigue", ()
   assert.ok(mdfs[0] > mdfs[mdfs.length - 1] * 1.1, `mdf ${mdfs.map((m) => m.toFixed(0)).join(" ")}`);
   void ACT_DT;
 });
+
+test("partial reps: full, top-half and bottom-half reps counted and classified", () => {
+  const full = { liftS: 1, lowerS: 1.4, level: 0.7 };
+  const reps = [
+    ...repeat(4, full),
+    ...repeat(4, { liftS: 0.6, lowerS: 0.7, pauseS: 0.1, level: 0.7, floor: 0.6 }),  // top half: never relaxes
+    ...repeat(4, { liftS: 0.6, lowerS: 0.7, level: 0.4 }),                        // bottom half: never reaches the top
+  ];
+  const sets: SimSet[] = [{ startS: 5, arms: ["right"], reps }];
+  const R = channel(simulateArm(sets, { side: "right", gain: 1 }, 50, FS, 150, 21), "right", "R");
+  const [set] = detectSets([R]);
+  const got = set.sides[0].reps.map((r) => r.range);
+  assert.equal(got.length, 12, `reps ${got.length}: ${got.join(",")}`);
+  assert.deepEqual(got.slice(0, 4), ["full", "full", "full", "full"], got.join(","));
+  assert.ok(got.slice(5, 8).every((g) => g === "top"), got.join(","));
+  assert.ok(got.slice(9).every((g) => g === "bottom"), got.join(","));
+});
+
+import { buildLogFull } from "../src/core/log";
+test("log: paused and one-arm movements are ignored for both-arms exercises", () => {
+  const side = (sd: "left" | "right") => ({ key: sd, side: sd, muscle: "triceps", holds: [], peak: 40, effort: 80, activeS: 10,
+    reps: [0, 1, 2].map((i) => ({ start: 0, end: 0, peak: 40, mean: 20, riseS: 1, fallS: 1, peakT: i * 1000 })) });
+  const set = (a: number, sides: ("left" | "right")[]) => ({ start: a * 1000, end: (a + 10) * 1000, reps: 3, flags: [], sides: sides.map(side) });
+  const placement = { t: 0, type: "placement" as const, placements: [
+    { sensorId: "left", sensorName: "1", muscle: "triceps", side: "left" as const }, { sensorId: "right", sensorName: "2", muscle: "triceps", side: "right" as const }] };
+  const ev: WorkoutEvent[] = [placement, { t: 0, type: "exercise", exerciseId: "rope", name: "Rope" },
+    { t: 50000, type: "pause", paused: true }, { t: 80000, type: "pause", paused: false },
+    { t: 150000, type: "exercise", exerciseId: "kick", name: "Kickback", unilateral: true }];
+  const r = buildLogFull([set(10, ["left", "right"]), set(30, ["left"]), set(60, ["left", "right"]), set(100, ["left", "right"]), set(160, ["right"])], ev);
+  assert.deepEqual(r.sets.map((s) => s.start / 1000), [10, 100, 160]);
+  assert.deepEqual(r.ignored.map((i) => i.reason), ["only the left arm moved", "paused"]);
+});
 console.log(`\n${passed} tests passed`);

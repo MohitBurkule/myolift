@@ -12,7 +12,8 @@
 import { useSyncExternalStore } from "react";
 import { Directory, File, Paths } from "expo-file-system";
 import Native from "../../modules/myoblue-native";
-import { buildLog, stateAt, type LoggedSet, type Placement, type Side, type Unit, type WorkoutEvent } from "../core/log";
+import { buildLog, buildLogFull, stateAt, type Ignored, type LoggedSet, type Placement, type Side, type Unit, type WorkoutEvent } from "../core/log";
+import { shortName } from "./exercises";
 import { envelopeBins, filteredWindow, fitClock } from "../core/offline";
 import { ACT_DT, DEFAULT_DETECT, detectSets, formFlags, medianFrequency, movingAverage, type Activation, type Channel, type DetectedSet, type Reference } from "../core/workout";
 import { BIN_ORIGIN, getSensor } from "./sensors";
@@ -130,6 +131,9 @@ export async function endWorkout(): Promise<string | null> {
   if (!a || !Native) return null;
   Native.stopRecording();
   a.meta.endedAt = new Date().toISOString();
+  // name the workout after what was done in it
+  const names = [...new Set(liveLog().map((s) => shortName({ id: s.exerciseId, name: s.exerciseName })))];
+  if (names.length) a.meta.name = names.slice(0, 3).join(" · ") + (names.length > 3 ? ` +${names.length - 3}` : "");
   writeJson(new File(a.dir, "workout.json"), a.meta);
   // keep the live result until the full analysis replaces it
   writeJson(new File(a.dir, "analysis.json"), { live: true, sets: [...a.frozen, ...a.current] });
@@ -226,9 +230,22 @@ function tick() {
 }
 
 export function liveLog(): LoggedSet[] {
+  return liveLogFull().sets;
+}
+
+export function liveLogFull(): { sets: LoggedSet[]; ignored: Ignored[] } {
   const a = state.active;
-  if (!a) return [];
-  return buildLog([...a.frozen, ...a.current], a.events, a.meta.unit);
+  if (!a) return { sets: [], ignored: [] };
+  return buildLogFull([...a.frozen, ...a.current], a.events, a.meta.unit);
+}
+
+/** Paused right now? (nothing counts as a set while paused) */
+export function isPaused(): boolean {
+  const a = state.active;
+  if (!a) return false;
+  let p = false;
+  for (const e of a.events) if (e.type === "pause") p = e.paused;
+  return p;
 }
 
 export function workoutTime(): number {
@@ -270,6 +287,20 @@ export function listWorkouts(): WorkoutSummary[] {
     if (w) out.push(w);
   }
   return out.sort((x, y) => y.meta.startedAt.localeCompare(x.meta.startedAt));
+}
+
+/** Workouts that start within `gapMin` minutes of the previous one ending form one session. */
+export function groupSessions(list: WorkoutSummary[], gapMin = 20): WorkoutSummary[][] {
+  const asc = [...list].sort((a, b) => a.meta.startedAt.localeCompare(b.meta.startedAt));
+  const groups: WorkoutSummary[][] = [];
+  for (const w of asc) {
+    const g = groups[groups.length - 1];
+    const prev = g?.[g.length - 1];
+    const prevEnd = prev ? new Date(prev.meta.endedAt ?? prev.meta.startedAt).getTime() : -Infinity;
+    if (g && new Date(w.meta.startedAt).getTime() - prevEnd < gapMin * 60_000) g.push(w);
+    else groups.push([w]);
+  }
+  return groups.reverse();
 }
 
 export function loadWorkout(id: string): WorkoutSummary | null {

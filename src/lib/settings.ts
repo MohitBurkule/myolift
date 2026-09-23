@@ -43,6 +43,10 @@ export interface Settings {
   placementRefs: Record<string, { ref: Fingerprint; at: number; offsets: Labelled[] }>;
   /** reference photo per "muscle|side" (file uri + detected sensor) */
   placementPhotos: Record<string, { uri: string; spot: SensorSpot | null; at: number; facing: "front" | "back" }>;
+  /** weight stack per exercise id (weights the machine offers); cable/machine exercises default to the common pin stack */
+  stacks: Record<string, number[]>;
+  /** one arm at a time per exercise id (overrides the default from the name) */
+  unilateral: Record<string, boolean>;
 }
 
 const DEFAULTS: Settings = {
@@ -70,6 +74,8 @@ const DEFAULTS: Settings = {
   placementCheck: true,
   placementRefs: {},
   placementPhotos: {},
+  stacks: {},
+  unilateral: {},
 };
 
 const file = () => new File(Paths.document, "settings.json");

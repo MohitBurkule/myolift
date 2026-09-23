@@ -98,4 +98,32 @@ test("learned offsets: nearest labelled example wins", () => {
   assert.equal(compare(fp("reference", 12), ref, library).closest?.label, "reference");
 });
 
+import { defaultStack, parseStack, stepStack } from "../src/core/stack";
+test("weight stack: the user's machine and stepping", () => {
+  const kg = defaultStack("kg");
+  assert.deepEqual(kg.slice(0, 4), [1.1, 3.4, 5.7, 7.9]);
+  assert.ok(kg.includes(14.7) && kg.includes(19.3) && kg.includes(44.2), kg.join(","));
+  assert.equal(stepStack(kg, 17, 1), 19.3);
+  assert.equal(stepStack(kg, 18, -1), 17);
+  assert.deepEqual(parseStack("5, 2.5, 10"), [2.5, 5, 10]);
+  assert.deepEqual(parseStack("1.1-5.7 step 2.3"), [1.1, 3.4, 5.7]);
+});
+
+import { writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { ZipWriter } from "../src/core/zip";
+test("zip writer output passes unzip -t", () => {
+  const chunks: Uint8Array[] = [];
+  const z = new ZipWriter((c) => chunks.push(c));
+  z.add("workouts/a/events.jsonl", new TextEncoder().encode('{"t":1}\n'));
+  z.add("workouts/a/S1.bin", Uint8Array.from({ length: 5000 }, (_, i) => i & 255));
+  z.add("README.txt", new TextEncoder().encode("µV ✓"));
+  z.finish();
+  const f = `${tmpdir()}/myolift-test.zip`;
+  writeFileSync(f, Buffer.concat(chunks.map((c) => Buffer.from(c))));
+  const out = execSync(`unzip -t ${f}`).toString();
+  assert.ok(/No errors detected/.test(out), out);
+});
+
 console.log(`\n${passed} tests passed`);

@@ -120,6 +120,10 @@ export interface Rep {
   fallS: number;
   /** median frequency of the raw EMG during the rep (Hz), if computed */
   mdf?: number;
+  valleyBefore?: number;
+  valleyAfter?: number;
+  /** estimated range of motion (from activation, not joint angle) */
+  range?: RepRange;
 }
 
 export interface Hold {
@@ -143,8 +147,10 @@ function quantile(values: number[], q: number) {
 }
 
 /**
- * Reps by hysteresis on the set's own range: a rep is a rise above `hi` followed by a fall below `lo`.
- * Holds stay above `hi` and so count once, which is what we want for slow controlled reps.
+ * Reps are activation peaks with enough prominence (how far the signal drops on both sides
+ * before a higher peak), at least 0.7 s apart. Small up-and-down movements within a set are
+ * found too; each rep is then classified by how high it peaks and how far it relaxes
+ * compared with the set's full reps (see classifyRange). A long hold is one peak, so it counts once.
  */
 export function detectReps(act: Activation, span: Span): Rep[] {
   const { a, b } = slice(act, span);
@@ -154,36 +160,74 @@ export function detectReps(act: Activation, span: Span): Rep[] {
   if (vals.length < ACT_HZ) return [];
   const p10 = quantile(vals, 0.1), p95 = quantile(vals, 0.95), range = p95 - p10;
   if (range < 3) return [];
-  const hi = p10 + 0.5 * range, lo = p10 + 0.28 * range;
+  const minProm = Math.max(0.18 * range, 3), minLevel = p10 + 0.25 * range;
+  const minSep = Math.round(0.7 * ACT_HZ);
+  const n = x.length;
+  const at = (i: number) => (x[i] === x[i] ? x[i] : -Infinity);
+  // local maxima (plateaus: first sample)
+  let peaks: number[] = [];
+  for (let i = 1; i < n - 1; i++) {
+    const v = at(i);
+    if (v < minLevel) continue;
+    if (v > at(i - 1) && v >= at(i + 1)) peaks.push(i);
+  }
+  // prominence
+  const prom = (i: number) => {
+    const v = at(i);
+    let l = v, r = v;
+    for (let j = i - 1; j >= 0 && at(j) <= v; j--) l = Math.min(l, at(j) === -Infinity ? l : at(j));
+    for (let j = i + 1; j < n && at(j) <= v; j++) r = Math.min(r, at(j) === -Infinity ? r : at(j));
+    return v - Math.max(l, r);
+  };
+  peaks = peaks.filter((i) => prom(i) >= minProm);
+  // enforce minimum spacing, keeping the higher peak
+  const kept: number[] = [];
+  for (const i of peaks) {
+    const last = kept[kept.length - 1];
+    if (last !== undefined && i - last < minSep) { if (at(i) > at(last)) kept[kept.length - 1] = i; }
+    else kept.push(i);
+  }
+  // boundaries: lowest point between neighbouring peaks; outer edges: where activity starts / ends
+  const valley = (i: number, j: number) => { let m = i; for (let k = i; k <= j; k++) if (at(k) < at(m)) m = k; return m; };
+  const onLevel = p10 + 0.2 * range;
+  const t = (j: number) => act.t0 + (a + j) * ACT_DT;
   const reps: Rep[] = [];
-  let state: "low" | "high" = "low";
-  let onset = 0, peakI = 0, peak = -Infinity;
-  for (let i = 0; i < x.length; i++) {
-    const v = x[i];
-    if (v !== v) continue;
-    if (state === "low") {
-      if (v < lo || i === 0) onset = i;
-      if (v > hi) { state = "high"; peak = v; peakI = i; }
-    } else {
-      if (v > peak) { peak = v; peakI = i; }
-      if (v < lo) {
-        const end = i;
-        if ((end - onset) * ACT_DT >= 500) {
-          let s = 0, c = 0;
-          for (let j = onset; j <= end; j++) if (x[j] === x[j]) { s += x[j]; c++; }
-          const t = (j: number) => act.t0 + (a + j) * ACT_DT;
-          reps.push({ start: t(onset), peakT: t(peakI), end: t(end), peak, mean: s / c, riseS: ((peakI - onset) * ACT_DT) / 1000, fallS: ((end - peakI) * ACT_DT) / 1000 });
-        }
-        state = "low"; onset = i;
-      }
-    }
+  for (let k = 0; k < kept.length; k++) {
+    const p = kept[k];
+    let s0: number, e0: number;
+    if (k === 0) { s0 = p; while (s0 > 0 && at(s0 - 1) > onLevel) s0--; } else s0 = valley(kept[k - 1], p);
+    if (k === kept.length - 1) { e0 = p; while (e0 < n - 1 && at(e0 + 1) > onLevel) e0++; } else e0 = valley(p, kept[k + 1]);
+    if ((e0 - s0) * ACT_DT < 400) continue;
+    let sum = 0, c = 0;
+    for (let j = s0; j <= e0; j++) if (x[j] === x[j]) { sum += x[j]; c++; }
+    reps.push({
+      start: t(s0), peakT: t(p), end: t(e0), peak: at(p), mean: sum / Math.max(1, c),
+      riseS: ((p - s0) * ACT_DT) / 1000, fallS: ((e0 - p) * ACT_DT) / 1000,
+      valleyBefore: at(s0), valleyAfter: at(e0),
+    });
   }
-  // a set that ends while still contracted (e.g. final hold): count the last rep
-  if (state === "high" && (x.length - onset) * ACT_DT >= 500) {
-    const t = (j: number) => act.t0 + (a + j) * ACT_DT;
-    reps.push({ start: t(onset), peakT: t(peakI), end: t(x.length - 1), peak, mean: peak, riseS: ((peakI - onset) * ACT_DT) / 1000, fallS: ((x.length - 1 - peakI) * ACT_DT) / 1000 });
-  }
+  classifyRange(reps, p10);
   return reps;
+}
+
+export type RepRange = "full" | "top" | "bottom" | "mid";
+
+/**
+ * Range of a rep, estimated from activation relative to the set's full reps: a full rep
+ * peaks high (lockout / contracted) and relaxes low (stretched) between reps. Top-half
+ * partials peak high but never relax; bottom-half partials relax but never peak.
+ * For pushdowns and curls triceps/biceps activation is highest near the contracted end.
+ */
+export function classifyRange(reps: Rep[], base: number) {
+  if (!reps.length) return;
+  const peaks = reps.map((r) => r.peak).sort((x, y) => x - y);
+  const full = peaks[Math.floor(0.8 * (peaks.length - 1))];
+  const span = Math.max(full - base, 1e-6);
+  for (const r of reps) {
+    const pn = (r.peak - base) / span;
+    const vn = (((r.valleyBefore ?? base) + (r.valleyAfter ?? base)) / 2 - base) / span;
+    r.range = pn >= 0.72 ? (vn <= 0.38 ? "full" : "top") : vn <= 0.38 ? "bottom" : "mid";
+  }
 }
 
 /** Sustained plateaus: activation steady (range < 25 % of its level) above 12 % for >= 1.5 s. */

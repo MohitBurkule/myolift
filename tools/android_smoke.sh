@@ -77,7 +77,10 @@ adb shell monkey -p $PKG -c android.intent.category.LAUNCHER 1 >/dev/null; sleep
 adb shell input tap $END_X $END_Y; echo "tap End at $END_X $END_Y"
 sleep 20; alive; shot 09-summary
 has "Set 1" || { scroll; has "Set 1"; } || fail "no sets in the workout summary"
-tap "Set 1"; sleep 5; shot 10-set-detail
+tap_scroll "Raw data (zip)"; sleep 8; shot 09b-export; alive
+adb shell input keyevent KEYCODE_BACK; sleep 2
+for i in 1 2 3; do adb shell input swipe 160 200 160 560 300; done; sleep 1
+tap_scroll "Set 1"; sleep 5; shot 10-set-detail
 found=0; for i in 1 2 3 4; do if has "Fix this set"; then found=1; break; fi; scroll; done
 [ $found = 1 ] || fail "set detail incomplete"
 shot 11-set-detail-bottom

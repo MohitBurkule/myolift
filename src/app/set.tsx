@@ -64,10 +64,10 @@ export default function SetScreen() {
             {plot}
             <Text style={{ color: t.muted, fontSize: 12 }}>Numbers mark each detected rep; green bands are holds.</Text>
             <View style={{ gap: 2 }}>
-              <Text style={{ color: t.muted, fontSize: 12, fontVariant: ["tabular-nums"] }}>rep   peak   up (s)  down (s)  freq</Text>
+              <Text style={{ color: t.muted, fontSize: 12, fontVariant: ["tabular-nums"] }}>rep   peak   up (s)  down (s)  freq     range</Text>
               {side.reps.map((r, i) => (
                 <Text key={i} style={{ color: t.ink, fontSize: 13, fontVariant: ["tabular-nums"] }}>
-                  {String(i + 1).padStart(3)}   {r.peak.toFixed(0).padStart(3)}%   {r.riseS.toFixed(1).padStart(5)}   {r.fallS.toFixed(1).padStart(7)}   {r.mdf ? `${r.mdf.toFixed(0)} Hz` : "–"}
+                  {String(i + 1).padStart(3)}   {r.peak.toFixed(0).padStart(3)}%   {r.riseS.toFixed(1).padStart(5)}   {r.fallS.toFixed(1).padStart(7)}   {(r.mdf ? `${r.mdf.toFixed(0)} Hz` : "–").padEnd(8)} {r.range === "top" ? "top half" : r.range === "bottom" ? "bottom half" : r.range ?? "full"}
                 </Text>
               ))}
             </View>
@@ -75,7 +75,7 @@ export default function SetScreen() {
           </Card>
         );
       })}
-      <Body muted style={{ fontSize: 12 }}>"Up" is onset to peak activation (mostly the lifting part), "down" is peak to relaxed (mostly lowering). Frequency is the median frequency of the EMG; it drops as the muscle fatigues.</Body>
+      <Body muted style={{ fontSize: 12 }}>Range is estimated from activation (a full rep peaks high and relaxes low; top-half partials never relax, bottom-half partials never peak), not from the joint angle. "Up" is onset to peak activation (mostly the lifting part), "down" is peak to relaxed (mostly lowering). Frequency is the median frequency of the EMG; it drops as the muscle fatigues.</Body>
 
       <Label>Fix this set</Label>
       <Card style={{ padding: 12, gap: 10 }}>

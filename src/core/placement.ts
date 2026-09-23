@@ -35,7 +35,46 @@ export function protocol(muscle: string, quick = false): Step[] {
       { id: "abduct", title: "Arm out", text: "Lift the arm(s) out to the side to shoulder height and hold", seconds: 4 },
     ],
   };
-  const list = steps[muscle] ?? [rest, { id: "mvc", title: "Squeeze", text: `Tense the ${muscle} as hard as you can`, seconds: 4 }];
+  const more: Record<string, Step[]> = {
+    shoulders: [
+      rest,
+      { id: "mvc", title: "Push up", text: "Arm out to the side at shoulder height, push it up hard against your other hand or a fixed bar", seconds: 4 },
+      // front vs side: anterior deltoid fires on the front raise, the lateral head much less
+      { id: "raise", title: "Front raise", text: "Arm straight in front at shoulder height, hold", seconds: 4 },
+      // pushing the arm back works the rear deltoid and the triceps long head
+      { id: "push", title: "Push back", text: "Arm straight, push it backwards hard", seconds: 4 },
+    ],
+    forearms: [
+      rest,
+      { id: "mvc", title: "Grip", text: "Make a fist and squeeze as hard as you can", seconds: 4 },
+      { id: "raise", title: "Wrist up", text: "Arm relaxed, bend the wrist back (knuckles up) and hold hard", seconds: 4 },
+    ],
+    chest: [
+      rest,
+      { id: "mvc", title: "Press", text: "Press your palms together in front of your chest as hard as you can", seconds: 4 },
+      { id: "abduct", title: "Arm out", text: "Lift the arm out to the side and hold (shoulder, not chest)", seconds: 4 },
+    ],
+    lats: [
+      rest,
+      { id: "mvc", title: "Pull down", text: "Arm raised, pull the elbow down hard against a fixed bar or your other hand", seconds: 4 },
+      { id: "abduct", title: "Arm out", text: "Lift the arm out to the side and hold (shoulder, not back)", seconds: 4 },
+    ],
+    quadriceps: [
+      rest,
+      { id: "mvc", title: "Straighten", text: "Seated, straighten the knee hard and tense the thigh", seconds: 4 },
+      { id: "raise", title: "Hamstring", text: "Seated, press the heel back into the chair or floor hard", seconds: 4 },
+    ],
+    hamstrings: [
+      rest,
+      { id: "mvc", title: "Curl", text: "Seated, press the heel back into the chair or floor as hard as you can", seconds: 4 },
+      { id: "raise", title: "Quad", text: "Seated, straighten the knee and tense the thigh", seconds: 4 },
+    ],
+    calves: [
+      rest,
+      { id: "mvc", title: "Toes", text: "Standing, rise onto your toes and hold hard", seconds: 4 },
+    ],
+  };
+  const list = steps[muscle] ?? more[muscle] ?? [rest, { id: "mvc", title: "Squeeze", text: `Tense the ${muscle} as hard as you can`, seconds: 4 }];
   return quick ? list.slice(0, 2) : list;
 }
 

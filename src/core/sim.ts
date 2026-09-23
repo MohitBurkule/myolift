@@ -6,7 +6,8 @@
  */
 import { BATTERY_V_PER_LSB, PACKET_BYTES, PER_PACKET, UV_PER_LSB } from "./protocol";
 
-export interface SimRep { liftS: number; holdS?: number; lowerS: number; pauseS?: number; level: number }
+/** floor: lowest activation between reps, as a share of level (partial reps at the top never relax) */
+export interface SimRep { liftS: number; holdS?: number; lowerS: number; pauseS?: number; level: number; floor?: number }
 export interface SimSet { startS: number; reps: SimRep[]; arms: ("left" | "right")[]; fatigue?: number }
 
 export interface SimArm { side: "left" | "right"; gain: number }
@@ -25,10 +26,11 @@ function activationAt(sets: SimSet[], side: "left" | "right", t: number): { a: n
       const fat = (s.fatigue ?? 0) * (i / Math.max(1, s.reps.length - 1));
       const t1 = tt + r.liftS, t2 = t1 + hold, t3 = t2 + r.lowerS, t4 = t3 + pause;
       if (t < tt) break;
-      if (t < t1) return { a: r.level * (0.15 + 0.85 * ((t - tt) / r.liftS)), fatigue: fat };
+      const fl = r.floor ?? 0;
+      if (t < t1) return { a: r.level * Math.max(fl, 0.15 + 0.85 * ((t - tt) / r.liftS)), fatigue: fat };
       if (t < t2) return { a: r.level * 0.95, fatigue: fat };
-      if (t < t3) return { a: r.level * (0.55 - 0.4 * ((t - t2) / r.lowerS)), fatigue: fat };
-      if (t < t4) return { a: r.level * 0.05, fatigue: fat };
+      if (t < t3) return { a: r.level * Math.max(fl, 0.55 - 0.4 * ((t - t2) / r.lowerS)), fatigue: fat };
+      if (t < t4) return { a: r.level * Math.max(fl, 0.05), fatigue: fat };
       tt = t4;
     }
   }

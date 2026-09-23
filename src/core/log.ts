@@ -18,7 +18,10 @@ export interface Placement {
 }
 
 export type WorkoutEvent =
-  | { t: number; type: "exercise"; exerciseId: string; name: string; unilateral?: boolean }
+  /** unilateral: one arm at a time (single-arm sets count); assisted: weight is assistance (not load) */
+  | { t: number; type: "exercise"; exerciseId: string; name: string; unilateral?: boolean; assisted?: boolean }
+  /** while paused nothing counts as a set (drinking, adjusting the machine…) */
+  | { t: number; type: "pause"; paused: boolean }
   | { t: number; type: "weight"; value: number; unit: Unit }
   /** grip / attachment, e.g. "Rope", "V-bar", "Straight bar", "Underhand" ("" = none) */
   | { t: number; type: "grip"; grip: string }
@@ -47,7 +50,12 @@ export interface LoggedSet {
   grip: string;
   weight: number | null;
   unit: Unit;
+  /** weight is assistance (assisted pull-up machine): not counted as load */
+  assisted: boolean;
+  unilateral: boolean;
   reps: number;
+  /** estimated range of each rep (side with most reps) */
+  ranges: { full: number; top: number; bottom: number; mid: number };
   sides: SideResult[];
   flags: DetectedSet["flags"];
   /** "drop" / "super" when part of a drop set or superset; groupId links the members */
@@ -68,13 +76,33 @@ function lastBefore<T extends WorkoutEvent["type"]>(events: WorkoutEvent[], type
   return found;
 }
 
+export interface Ignored { start: number; end: number; reason: string }
+
 export function buildLog(detected: DetectedSet[], events: WorkoutEvent[], defaultUnit: Unit = "kg"): LoggedSet[] {
+  return buildLogFull(detected, events, defaultUnit).sets;
+}
+
+function pausedAt(evs: WorkoutEvent[], t: number) {
+  return lastBefore(evs, "pause", t)?.paused ?? false;
+}
+
+/** Log plus the movements that were not counted (paused, one arm during a both-arms exercise). */
+export function buildLogFull(detected: DetectedSet[], events: WorkoutEvent[], defaultUnit: Unit = "kg"): { sets: LoggedSet[]; ignored: Ignored[] } {
   const evs = [...events].sort((a, b) => a.t - b.t);
+  const ignored: Ignored[] = [];
   const edits = evs.filter((e): e is Extract<WorkoutEvent, { type: "setEdit" }> => e.type === "setEdit");
   const out: LoggedSet[] = [];
   for (const d of [...detected].sort((a, b) => a.start - b.start)) {
     // an exercise or weight chosen in the first 2 s of a set still applies to it
     const ex = lastBefore(evs, "exercise", d.start + 2000);
+    if (pausedAt(evs, d.start) && pausedAt(evs, d.end)) { ignored.push({ start: d.start, end: d.end, reason: "paused" }); continue; }
+    // both-arms exercise but only one arm moved (e.g. lifting a bottle): not a set
+    const placed = lastBefore(evs, "placement", d.start)?.placements ?? [];
+    const bothPlaced = placed.some((p) => p.side === "left") && placed.some((p) => p.side === "right");
+    if (bothPlaced && !ex?.unilateral && d.sides.length === 1) { ignored.push({ start: d.start, end: d.end, reason: `only the ${d.sides[0].side} arm moved` }); continue; }
+    const main = [...d.sides].sort((x, y) => y.reps.length - x.reps.length)[0];
+    const ranges = { full: 0, top: 0, bottom: 0, mid: 0 };
+    for (const r of main?.reps ?? []) ranges[r.range ?? "full"]++;
     const w = lastBefore(evs, "weight", d.start + 2000);
     const g = lastBefore(evs, "grip", d.start + 2000);
     const set: LoggedSet = {
@@ -82,6 +110,7 @@ export function buildLog(detected: DetectedSet[], events: WorkoutEvent[], defaul
       start: d.start, end: d.end,
       exerciseId: ex?.exerciseId ?? "unknown", exerciseName: ex?.name ?? "Unassigned exercise", grip: g?.grip ?? "",
       weight: w?.value ?? null, unit: w?.unit ?? defaultUnit,
+      assisted: !!ex?.assisted, unilateral: !!ex?.unilateral, ranges,
       reps: d.reps, sides: d.sides, flags: d.flags, group: null, groupId: null, edited: false,
     };
     // weight tapped mid-set: drop set within the set
@@ -106,6 +135,7 @@ export function buildLog(detected: DetectedSet[], events: WorkoutEvent[], defaul
     }
     if (!(set as any).deleted) out.push(set);
   }
+  const sets = out;
   // drop sets and supersets across sets
   let group = 0;
   for (let i = 1; i < out.length; i++) {
@@ -119,7 +149,7 @@ export function buildLog(detected: DetectedSet[], events: WorkoutEvent[], defaul
     if (a.groupId === null || a.group !== kind) { a.groupId = ++group; a.group = kind; }
     b.group = kind; b.groupId = a.groupId;
   }
-  return out;
+  return { sets, ignored };
 }
 
 /** Placement and calibration in force at time t. */
@@ -131,14 +161,25 @@ export function stateAt(events: WorkoutEvent[], t: number) {
 }
 
 /** Summary numbers for a set of logged sets (one exercise or a whole workout). */
+/**
+ * EMG load of a set: weight × area under the activation curve (%MVC·s / 100), summed over the
+ * arms that worked. Unlike weight × reps it rewards slow reps, holds and time under tension,
+ * and it is 0 for reps that barely used the measured muscle. Units: kg·s at 100 % activation.
+ */
+export function emgLoad(s: LoggedSet): number {
+  if (!s.weight || s.assisted) return 0;
+  return s.sides.reduce((a, x) => a + (s.weight! * x.effort) / 100, 0);
+}
+
 export function totals(sets: LoggedSet[]) {
-  let volume = 0, reps = 0, tut = 0, effort = 0, holds = 0;
+  let volume = 0, reps = 0, tut = 0, effort = 0, holds = 0, load = 0;
   for (const s of sets) {
+    load += emgLoad(s);
     reps += s.reps;
-    if (s.weight) volume += s.segments ? s.segments.reduce((v, g) => v + g.weight * g.reps, 0) : s.weight * s.reps;
+    if (s.weight && !s.assisted) volume += s.segments ? s.segments.reduce((v, g) => v + g.weight * g.reps, 0) : s.weight * s.reps;
     tut += Math.max(0, ...s.sides.map((x) => x.activeS));
     effort += s.sides.reduce((e, x) => e + x.effort, 0);
     holds += s.sides.reduce((h, x) => h + x.holds.reduce((t, hh) => t + (hh.end - hh.start) / 1000, 0), 0);
   }
-  return { sets: sets.length, reps, volume, tutS: tut, effort, holdS: holds };
+  return { sets: sets.length, reps, volume, tutS: tut, effort, holdS: holds, emgLoad: load };
 }

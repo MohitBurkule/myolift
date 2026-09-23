@@ -7,11 +7,12 @@ import type { LoggedSet } from "../../core/log";
 import { useTick } from "../../components/plots";
 import { SetCard } from "../../components/SetCard";
 import { Body, Button, Card, Label, Pill, Title } from "../../components/ui";
-import { findExercise, shortName } from "../../lib/exercises";
+import { findExercise, isUnilateral, shortName } from "../../lib/exercises";
+import { stackFor, stepStack } from "../../core/stack";
 import { addDemoSensor, nativeAvailable, useSensors } from "../../lib/sensors";
-import { useSettings } from "../../lib/settings";
+import { updateSettings, useSettings } from "../../lib/settings";
 import { clock, useTheme } from "../../lib/theme";
-import { addEvent, endWorkout, liveLog, refKey, startWorkout, useWorkout, workoutTime } from "../../lib/workout";
+import { addEvent, endWorkout, isPaused, liveLogFull, refKey, startWorkout, useWorkout, workoutTime } from "../../lib/workout";
 
 export default function WorkoutScreen() {
   const t = useTheme();
@@ -20,7 +21,9 @@ export default function WorkoutScreen() {
   const w = useWorkout();
   const sensors = useSensors();
   const active = !!w.active;
-  const log: LoggedSet[] = active ? liveLog() : [];
+  const full = active ? liveLogFull() : { sets: [] as LoggedSet[], ignored: [] };
+  const log = full.sets;
+  const paused = active && isPaused();
   const ex = s.exercise ? findExercise(s.exercise.id) : undefined;
   const grips = gripsFor(ex?.equipment);
   const uncalibrated = s.placements.filter((p) => !s.refs[refKey(p)] || Date.now() - s.refs[refKey(p)].at > 3 * 3600_000);
@@ -30,6 +33,12 @@ export default function WorkoutScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: insets.top + 12, gap: 12, paddingBottom: 100 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Title style={{ flex: 1 }}>{active ? w.active!.meta.name : "MyoLift"}</Title>
+          {active ? (
+            <Pressable onPress={() => addEvent({ type: "pause", paused: !paused })} accessibilityRole="button" accessibilityLabel={paused ? "Resume" : "Pause"}
+              style={{ paddingHorizontal: 12, minHeight: 32, justifyContent: "center", borderRadius: 999, borderWidth: 1, borderColor: paused ? t.warn : t.line, backgroundColor: paused ? t.warn + "22" : t.panel }}>
+              <Text style={{ color: paused ? t.warn : t.ink, fontWeight: "700" }}>{paused ? "▶ Resume" : "❚❚ Pause"}</Text>
+            </Pressable>
+          ) : null}
           {active ? <Timer /> : null}
         </View>
 
@@ -73,10 +82,32 @@ export default function WorkoutScreen() {
               );
             })}
           </ScrollView>
-          <WeightControl />
+          <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            {(() => {
+              const uni = ex ? s.unilateral[ex.id] ?? isUnilateral(ex) : false;
+              const toggle = () => {
+                if (!ex || !s.exercise) return;
+                updateSettings({ unilateral: { ...s.unilateral, [ex.id]: !uni } });
+                addEvent({ type: "exercise", exerciseId: ex.id, name: ex.name, unilateral: !uni, assisted: !!ex.assisted });
+              };
+              return (
+                <Pressable onPress={toggle} accessibilityRole="button" accessibilityLabel={uni ? "One arm at a time" : "Both arms"}
+                  style={{ borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, minHeight: 32, justifyContent: "center", borderColor: t.line, backgroundColor: t.panel }}>
+                  <Text style={{ color: t.ink, fontWeight: "600" }}>{uni ? "One arm at a time" : "Both arms"} ⇄</Text>
+                </Pressable>
+              );
+            })()}
+            {ex?.assisted ? <Text style={{ color: t.muted, fontSize: 13 }}>weight = assistance</Text> : null}
+          </View>
+          <WeightControl equipment={ex?.equipment ?? null} exerciseId={ex?.id ?? null} />
         </Card>
 
-        {active ? <LiveStatus /> : null}
+        {active ? (paused ? (
+          <Card style={{ padding: 14, borderColor: t.warn }}><Text style={{ color: t.warn, fontWeight: "700" }}>Paused: nothing counts as a set until you resume.</Text></Card>
+        ) : <LiveStatus />) : null}
+        {active && full.ignored.length ? (
+          <Text style={{ color: t.muted, fontSize: 12 }}>{full.ignored.length} movement{full.ignored.length > 1 ? "s" : ""} not counted ({[...new Set(full.ignored.map((i) => i.reason))].join(", ")})</Text>
+        ) : null}
 
         {active && log.length ? <Label>Sets · newest first</Label> : null}
         {active ? [...log].reverse().map((set, i) => (
@@ -120,7 +151,7 @@ function SensorStrip() {
   if (!s.placements.length) return null;
   return (
     <View style={{ flexDirection: "row", gap: 8 }}>
-      {s.placements.map((p) => {
+      {[...s.placements].sort((a, b) => (a.side === b.side ? 0 : a.side === "left" ? -1 : 1)).map((p) => {
         const live = sensors.find((x) => x.id === p.sensorId);
         const ref = s.refs[refKey(p)]?.ref;
         const pct = live && ref && live.envNow === live.envNow ? (live.envNow / ref.mvcRms) * 100 : null;
@@ -152,24 +183,35 @@ function PlacementBadge({ status }: { status?: string }) {
   return <Text style={{ color, fontSize: 12, fontWeight: "600" }}>{label}</Text>;
 }
 
-function WeightControl() {
+function WeightControl({ equipment, exerciseId }: { equipment: string | null; exerciseId: string | null }) {
   const t = useTheme();
   const s = useSettings();
   const set = (v: number) => addEvent({ type: "weight", value: Math.max(0, Math.round(v * 100) / 100), unit: s.unit });
   const w = s.weight ?? 0;
-  const recent = [...new Set([...s.recentWeights])].filter((x) => x !== w).slice(0, 6).sort((a, b) => a - b);
+  const stack = stackFor(s.stacks, exerciseId, equipment, s.unit);
+  const down = () => set(stack ? stepStack(stack, s.weight, -1) : w - s.weightStep);
+  const up = () => set(stack ? stepStack(stack, s.weight, 1) : w + s.weightStep);
+  const chips = stack ?? [...new Set([...s.recentWeights])].filter((x) => x !== w).slice(0, 6).sort((a, b) => a - b);
   return (
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Button title={`−${s.weightStep}`} onPress={() => set(w - s.weightStep)} style={{ minWidth: 64 }} />
-        <Pressable style={{ flex: 1, alignItems: "center" }} onPress={() => router.push("/weight")} accessibilityRole="button" accessibilityLabel="Enter weight">
+        <Button title={stack ? "−" : `−${s.weightStep}`} onPress={down} style={{ minWidth: 64 }} />
+        <Pressable style={{ flex: 1, alignItems: "center" }} onPress={() => router.push({ pathname: "/weight", params: { exerciseId: exerciseId ?? "", equipment: equipment ?? "" } })} accessibilityRole="button" accessibilityLabel="Enter weight">
           <Text style={{ color: t.ink, fontSize: 30, fontWeight: "800", fontVariant: ["tabular-nums"] }}>{s.weight === null ? "–" : fmtW(w)} <Text style={{ fontSize: 16, color: t.muted }}>{s.unit}</Text></Text>
         </Pressable>
-        <Button title={`+${s.weightStep}`} onPress={() => set(w + s.weightStep)} style={{ minWidth: 64 }} />
+        <Button title={stack ? "+" : `+${s.weightStep}`} onPress={up} style={{ minWidth: 64 }} />
       </View>
-      {recent.length ? (
+      {chips.length ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-          {recent.map((r) => <Button key={r} small title={`${fmtW(r)}`} onPress={() => set(r)} />)}
+          {chips.map((r) => {
+            const on = s.weight !== null && Math.abs(r - w) < 1e-6;
+            return (
+              <Pressable key={r} onPress={() => set(r)} accessibilityRole="button" accessibilityLabel={`${fmtW(r)} ${s.unit}`}
+                style={{ borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, minHeight: 36, justifyContent: "center", borderColor: on ? t.accent : t.line, backgroundColor: on ? t.accent + "22" : t.panel }}>
+                <Text style={{ color: on ? t.accent : t.ink, fontWeight: "600", fontVariant: ["tabular-nums"] }}>{fmtW(r)}</Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
       ) : null}
     </View>
