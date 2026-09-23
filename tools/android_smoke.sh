@@ -26,6 +26,15 @@ tap() {
   done
   fail "button '$1' not found"
 }
+# tap a button that may be below the fold: scroll down until it appears
+tap_scroll() {
+  for i in 1 2 3 4 5 6; do
+    dump
+    if xy=$(find_xy "$1"); then adb shell input tap $xy; echo "tap '$1' at $xy"; return 0; fi
+    adb shell input swipe 160 520 160 200 400; sleep 1
+  done
+  fail "button '$1' not found (after scrolling)"
+}
 alive() { adb shell pidof $PKG >/dev/null || fail "app process died"; }
 scroll() { adb shell input swipe 160 520 160 160 400; sleep 1; }
 
@@ -39,11 +48,11 @@ has "Put the sensors on" || fail "first-run screen not shown"
 tap "Try demo sensors"; sleep 4; shot 02-sensors
 tap "Use this sensor"; sleep 2
 tap "Use this sensor"; sleep 2; shot 03-placed
-tap "Calibrate these positions"; sleep 2
+tap_scroll "Calibrate these positions"; sleep 2
 tap "Start"; sleep 30; shot 04-calibration
 has "Results" || fail "calibration results not shown"
 has "New reference" || fail "placement check result not shown"
-tap "Save"; sleep 2
+tap_scroll "Save"; sleep 2
 adb shell input keyevent KEYCODE_BACK; sleep 2
 shot 05-ready
 
