@@ -9,7 +9,7 @@ class MyoblueNativeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("MyoblueNative")
 
-    Events("onDevice", "onSensorState", "onPacket", "onMarker", "onRecording")
+    Events("onDevice", "onSensorState", "onPacket", "onMarker", "onRecording", "onUpdate")
 
     OnCreate {
       val context = appContext.reactContext ?: return@OnCreate
@@ -26,9 +26,12 @@ class MyoblueNativeModule : Module() {
         override fun onRecording(active: Boolean) =
           sendEvent("onRecording", mapOf("active" to active))
       }
+      Updater.listener = { phase, progress, message ->
+        sendEvent("onUpdate", mapOf("phase" to phase, "progress" to progress, "message" to message))
+      }
     }
 
-    OnDestroy { MyoBle.listener = null }
+    OnDestroy { MyoBle.listener = null; Updater.listener = null }
 
     Function("isBluetoothOn") { MyoBle.isEnabled() }
     Function("startScan") { MyoBle.startScan() }
@@ -50,6 +53,23 @@ class MyoblueNativeModule : Module() {
       val context = appContext.reactContext ?: return@Function true
       MyoBle.ignoringBatteryOptimizations(context)
     }
+    Function("appVersionCode") {
+      val context = appContext.reactContext ?: return@Function 0.0
+      Updater.versionCode(context).toDouble()
+    }
+    Function("canInstallUpdates") {
+      val context = appContext.reactContext ?: return@Function false
+      Updater.canInstall(context)
+    }
+    Function("openInstallPermission") {
+      val context = appContext.reactContext
+      if (context != null) Updater.openInstallPermission(context)
+    }
+    Function("installUpdate") { url: String ->
+      val context = appContext.reactContext ?: return@Function false
+      Updater.install(context, url)
+    }
+
     Function("openBatterySettings") {
       val context = appContext.reactContext
       if (context != null) MyoBle.openBatterySettings(context)

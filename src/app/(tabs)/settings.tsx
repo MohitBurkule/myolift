@@ -9,7 +9,9 @@ import { resetProfile } from "../../lib/reps";
 import { shortName } from "../../lib/exercises";
 import { updateSettings, useSettings } from "../../lib/settings";
 import { useTheme } from "../../lib/theme";
+import { checkForUpdate, useUpdate } from "../../lib/update";
 import { APP_VERSION } from "../../lib/workout";
+import { UpdateBanner } from "../../components/UpdateBanner";
 
 export default function SettingsScreen() {
   const t = useTheme();
@@ -18,6 +20,7 @@ export default function SettingsScreen() {
   const [batteryOk, setBatteryOk] = useState(true);
   useFocusEffect(useCallback(() => { setBatteryOk(Native?.ignoringBatteryOptimizations() ?? true); }, []));
   const card = { padding: 14, gap: 14 };
+  const upd = useUpdate();
   return (
     <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + 12, gap: 12, paddingBottom: 40 }}>
       <Title>Settings</Title>
@@ -81,6 +84,13 @@ export default function SettingsScreen() {
         {!Object.keys(s.repProfiles).length ? <Body muted>Nothing learned yet.</Body> : null}
       </Card>
 
+      <Label>Updates</Label>
+      <Card style={card}>
+        <UpdateBanner always />
+        <Toggle label="Install updates automatically" hint="When a new build is published on GitHub, it's downloaded and installed the next time you open the app (never during a workout). The first update asks you to confirm; later ones usually install without asking." value={s.autoUpdate} onChange={(v) => updateSettings({ autoUpdate: v })} />
+        <Button small title={upd.phase === "checking" ? "Checking…" : "Check now"} disabled={upd.phase === "checking"} onPress={() => checkForUpdate(true)} />
+      </Card>
+
       <Label>My exercises</Label>
       <Card style={card}>
         {s.customExercises.length ? s.customExercises.map((e) => (
@@ -91,7 +101,7 @@ export default function SettingsScreen() {
         )) : <Body muted>Add your own from the exercise search.</Body>}
       </Card>
 
-      <Body muted style={{ fontSize: 12, textAlign: "center" }}>MyoLift {APP_VERSION} · ELEMYO MYOblue sensors · exercise list from free-exercise-db (public domain)</Body>
+      <Body muted style={{ fontSize: 12, textAlign: "center" }}>MyoLift {APP_VERSION}{upd.current ? ` (build ${upd.current})` : ""} · ELEMYO MYOblue sensors · exercise list from free-exercise-db (public domain)</Body>
     </ScrollView>
   );
 }

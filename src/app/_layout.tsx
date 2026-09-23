@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ensurePermissions, initSensors, nativeAvailable } from "../lib/sensors";
 import { useTheme } from "../lib/theme";
+import { initUpdates } from "../lib/update";
 import { initWorkout } from "../lib/workout";
 
 export default function RootLayout() {
@@ -13,6 +14,7 @@ export default function RootLayout() {
       if (nativeAvailable) await ensurePermissions();
       initSensors();
       initWorkout();
+      initUpdates();
     })();
   }, []);
   const header = { headerStyle: { backgroundColor: t.panel }, headerTintColor: t.ink, headerShadowVisible: false, contentStyle: { backgroundColor: t.bg } };

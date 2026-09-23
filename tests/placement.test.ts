@@ -21,7 +21,7 @@ const POS: Record<string, Pos> = {
   rotated: { lateral: 0.45, long: 0.16, deltoid: 0.03, gain: 1, noise: 3, hum: 0.5, hfShift: 0.3 },
   loose: { lateral: 1, long: 0.35, deltoid: 0.05, gain: 0.8, noise: 9, hum: 25 },
 };
-const ACT: Record<StepId, { lateral: number; long: number; deltoid: number }> = {
+const ACT: Record<Exclude<StepId, "identify">, { lateral: number; long: number; deltoid: number }> = {
   rest: { lateral: 0, long: 0, deltoid: 0 },
   mvc: { lateral: 1, long: 0.8, deltoid: 0.1 },
   push: { lateral: 0.2, long: 1, deltoid: 0.3 },
@@ -107,6 +107,21 @@ test("weight stack: the user's machine and stepping", () => {
   assert.equal(stepStack(kg, 18, -1), 17);
   assert.deepEqual(parseStack("5, 2.5, 10"), [2.5, 5, 10]);
   assert.deepEqual(parseStack("1.1-5.7 step 2.3"), [1.1, 3.4, 5.7]);
+});
+
+import { assignArms } from "../src/core/placement";
+test("identify arms: the sensor that fired is the left one, swapped if needed", () => {
+  const ps = [{ sensorId: "a", muscle: "triceps", side: "left" as const }, { sensorId: "b", muscle: "triceps", side: "right" as const }];
+  const env = (hi: string) => new Map([["a", Array(4000).fill(hi === "a" ? 120 : 8)], ["b", Array(4000).fill(hi === "b" ? 120 : 8)]]);
+  const same = assignArms(ps, env("a"), FS);
+  assert.deepEqual(same.placements.map((p) => p.side), ["left", "right"]);
+  assert.ok(same.checks.every((c) => !c.changed));
+  const swap = assignArms(ps, env("b"), FS);
+  assert.deepEqual(swap.placements.map((p) => p.side), ["right", "left"]);
+  assert.ok(swap.checks.every((c) => c.changed));
+  const flat = assignArms(ps, new Map([["a", Array(4000).fill(20)], ["b", Array(4000).fill(25)]]), FS);
+  assert.deepEqual(flat.unsure, ["triceps"]);
+  assert.deepEqual(flat.placements.map((p) => p.side), ["left", "right"]);
 });
 
 import { writeFileSync } from "node:fs";

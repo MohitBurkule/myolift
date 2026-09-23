@@ -118,6 +118,13 @@ export function findSensor(img: Image): SensorSpot | null {
   return best;
 }
 
+/** The spot as it would be in the left-right mirrored photo (a reference taken on the other arm). */
+export function mirrorSpot(s: SensorSpot): SensorSpot {
+  let angle = -s.angle;
+  if (angle <= -90) angle += 180;
+  return { ...s, x: s.width - s.x, angle };
+}
+
 export interface SpotDiff {
   /** + = lower in the photo (toward the elbow when the shoulder is at the top) */
   downMm: number;

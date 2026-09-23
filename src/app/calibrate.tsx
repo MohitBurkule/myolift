@@ -4,15 +4,15 @@ import { router } from "expo-router";
 import { useKeepAwake } from "expo-keep-awake";
 import { summarize, verdict, VERDICT_LABEL, type Calibration } from "../core/calibration";
 import type { Placement } from "../core/log";
-import { compare, fingerprint, OFFSET_LABELS, protocol, type Fingerprint, type Step, type StepCapture, type StepId, type Verdict } from "../core/placement";
+import { armPairs, assignArms, compare, fingerprint, identifyStep, OFFSET_LABELS, protocol, type Fingerprint, type Step, type StepCapture, type StepId, type Verdict } from "../core/placement";
 import { Body, Button, Card, Pill, Title, Toggle } from "../components/ui";
-import { getSensor, getSensors, setDemoHint } from "../lib/sensors";
+import { getSensor, getSensors, setDemoHint, setDemoHintFor } from "../lib/sensors";
 import { getSettings, updateSettings, useSettings } from "../lib/settings";
 import { useTheme } from "../lib/theme";
 import { addEvent } from "../lib/workout";
 
 type Result = { p: Placement; cal: Calibration | null; fp: Fingerprint | null; v: Verdict | null };
-type Phase = { kind: "intro" } | { kind: "run"; step: Step; index: number; total: number; prep: number; left: number } | { kind: "done"; results: Result[] };
+type Phase = { kind: "intro" } | { kind: "run"; step: Step; index: number; total: number; prep: number; left: number } | { kind: "done"; results: Result[]; arms: string | null };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const posKey = (p: Placement) => `${p.muscle}|${p.side}`;
 
@@ -28,7 +28,11 @@ export default function CalibrateScreen() {
   const placements = s.placements.filter((p) => getSensor(p.sensorId));
   const muscles = [...new Set(placements.map((p) => p.muscle))];
   // one protocol for everyone when all sensors are on the same muscle; mixed muscles: rest + squeeze only
-  const steps = muscles.length === 1 ? protocol(muscles[0], !s.placementCheck) : protocol("", true);
+  const base = muscles.length === 1 ? protocol(muscles[0], !s.placementCheck) : protocol("", true);
+  // two identical sensors on one muscle: find out which arm each one is on first
+  const pairs = armPairs(placements);
+  const steps = s.identifyArms && pairs.length ? [identifyStep(pairs[0][0].muscle), ...base] : base;
+  const [armNote, setArmNote] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "intro" });
   const running = useRef(false);
   useEffect(() => () => { running.current = false; setDemoHint(null); for (const x of getSensors()) { x.capture = null; x.captureRaw = null; } }, []);
@@ -37,7 +41,8 @@ export default function CalibrateScreen() {
     for (let i = 2; i > 0; i--) { if (!running.current) return null; setPhase({ kind: "run", step, index, total: steps.length, prep: i, left: step.seconds }); await sleep(1000); }
     const caps = new Map<string, StepCapture>();
     for (const p of placements) { const x = getSensor(p.sensorId)!; x.capture = []; x.captureRaw = []; caps.set(p.sensorId, { env: x.capture, raw: x.captureRaw }); }
-    setDemoHint(step.id);
+    if (step.id === "identify") for (const p of placements) setDemoHintFor(p.sensorId, p.side === "left" ? "mvc" : "rest");
+    else setDemoHint(step.id);
     const t0 = Date.now();
     while (running.current && Date.now() - t0 < step.seconds * 1000) { setPhase({ kind: "run", step, index, total: steps.length, prep: 0, left: step.seconds - (Date.now() - t0) / 1000 }); await sleep(100); }
     setDemoHint(null);
@@ -48,14 +53,17 @@ export default function CalibrateScreen() {
   async function run() {
     running.current = true;
     const all: Partial<Record<StepId, Map<string, StepCapture>>> = {};
+    let current = placements, arms: string | null = null;
+    setArmNote(null);
     for (let i = 0; i < steps.length; i++) {
       const caps = await runStep(steps[i], i);
       if (!caps) return;
-      all[steps[i].id] = caps;
+      if (steps[i].id === "identify") ({ current, arms } = identifyArms(caps));
+      else all[steps[i].id] = caps;
     }
     running.current = false;
     const cfg = getSettings();
-    const results: Result[] = placements.map((p) => {
+    const results: Result[] = current.map((p) => {
       const per: Partial<Record<StepId, StepCapture>> = {};
       for (const id of Object.keys(all) as StepId[]) { const c = all[id]!.get(p.sensorId); if (c) per[id] = c; }
       const cal = summarize(per.rest?.env ?? [], per.mvc?.env ?? [], { band: "emg", notch: 50 });
@@ -65,7 +73,28 @@ export default function CalibrateScreen() {
       const v = fp ? compare(fp, saved?.ref ?? null, saved?.offsets ?? []) : null;
       return { p, cal, fp, v };
     });
-    setPhase({ kind: "done", results });
+    setPhase({ kind: "done", results, arms });
+  }
+
+  /** Swap the sides if the "left arm only" step says the sensors are the other way round. */
+  function identifyArms(caps: Map<string, StepCapture>): { current: Placement[]; arms: string | null } {
+    const env = new Map([...caps].map(([id, c]) => [id, c.env]));
+    const fs = getSensor(placements[0].sensorId)?.rate || 975;
+    const r = assignArms(placements, env, fs > 500 ? fs : 975);
+    const name = (id: string) => placements.find((p) => p.sensorId === id)?.sensorName.replace(/_/g, " ") ?? id;
+    const changed = r.checks.filter((c) => c.changed);
+    if (changed.length) {
+      const all = getSettings().placements.map((p) => r.placements.find((q) => q.sensorId === p.sensorId) ?? p);
+      addEvent({ type: "placement", placements: all });
+    }
+    const lefts = r.checks.filter((c) => c.side === "left").map((c) => `${name(c.sensorId)} is on your left ${c.muscle}`);
+    const parts = [
+      lefts.length ? (changed.length ? `Swapped: ${lefts.join(", ")}.` : `Arms confirmed: ${lefts.join(", ")}.`) : "",
+      r.unsure.length ? `Couldn't tell the arms apart for ${r.unsure.join(", ")} (both sensors moved about the same), so the sides are unchanged. Check them in Sensors.` : "",
+    ].filter(Boolean);
+    const note = parts.join(" ") || null;
+    setArmNote(note);
+    return { current: r.placements, arms: note };
   }
 
   function save(results: Result[]) {
@@ -89,7 +118,7 @@ export default function CalibrateScreen() {
     const refs = { ...getSettings().placementRefs };
     refs[posKey(r.p)] = { ref: r.fp, at: Date.now(), offsets: refs[posKey(r.p)]?.offsets ?? [] };
     updateSettings({ placementRefs: refs });
-    setPhase((ph) => ph.kind === "done" ? { kind: "done", results: ph.results.map((x) => x === r ? { ...x, v: compare(r.fp!, r.fp!, refs[posKey(r.p)].offsets) } : x) } : ph);
+    setPhase((ph) => ph.kind === "done" ? { ...ph, results: ph.results.map((x) => x === r ? { ...x, v: compare(r.fp!, r.fp!, refs[posKey(r.p)].offsets) } : x) } : ph);
   }
 
   function label(r: Result, text: string) {
@@ -113,12 +142,18 @@ export default function CalibrateScreen() {
       </Card>
       <Card style={{ padding: 12, gap: 4 }}>
         {placements.map((p) => {
-          const hasRef = !!s.placementRefs[posKey(p)];
-          return <Text key={p.sensorId} style={{ color: t.ink }}>• {p.side} {p.muscle} <Text style={{ color: t.muted }}>{hasRef ? "· has a reference placement" : "· no reference yet (this one becomes it)"}</Text></Text>;
+          const hasRef = !!s.placementRefs[posKey(p)], photo = s.placementPhotos[posKey(p)];
+          return (
+            <View key={p.sensorId} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={{ color: t.ink, flex: 1 }}>• {p.side} {p.muscle} <Text style={{ color: t.muted }}>{hasRef ? "· has a reference placement" : "· no reference yet (this one becomes it)"}</Text></Text>
+              <Button small title={photo ? "Photo check" : "Reference photo"} onPress={() => router.push({ pathname: "/photo", params: { muscle: p.muscle, side: p.side } })} />
+            </View>
+          );
         })}
         {!placements.length ? <Body muted>No connected sensor has a position yet.</Body> : null}
       </Card>
       <Toggle label="Placement check" hint="Adds the extra movements (about 12 s)." value={s.placementCheck} onChange={(v) => updateSettings({ placementCheck: v })} />
+      {pairs.length ? <Toggle label="Find which arm each sensor is on" hint="Starts with a few seconds of left arm only, so it doesn't matter which sensor you strap on which arm." value={s.identifyArms} onChange={(v) => updateSettings({ identifyArms: v })} /> : null}
       {muscles.length > 1 ? <Body muted style={{ fontSize: 13 }}>Sensors are on different muscles, so only rest + squeeze run.</Body> : null}
     </ScrollView>
   );
@@ -127,6 +162,7 @@ export default function CalibrateScreen() {
     <View style={{ flex: 1, backgroundColor: t.bg, padding: 24, justifyContent: "center", gap: 22 }}>
       <Body muted style={{ textAlign: "center" }}>{phase.index + 1} of {phase.total} · {phase.step.title}</Body>
       <Title style={{ textAlign: "center", fontSize: 24 }}>{phase.step.text}</Title>
+      {armNote && phase.step.id !== "identify" ? <Body muted style={{ textAlign: "center" }}>{armNote}</Body> : null}
       <View style={{ height: 12, borderRadius: 999, backgroundColor: t.panel2, overflow: "hidden" }}>
         <View style={{ width: `${phase.prep ? 0 : (1 - phase.left / phase.step.seconds) * 100}%`, height: "100%", backgroundColor: t.accent }} />
       </View>
@@ -138,6 +174,7 @@ export default function CalibrateScreen() {
   return (
     <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
       <Title>Results</Title>
+      {phase.arms ? <Card style={{ padding: 12 }}><Body style={{ fontSize: 14 }}>{phase.arms}</Body></Card> : null}
       {phase.results.map((r) => <ResultCard key={r.p.sensorId} r={r} onReference={() => setReference(r)} onLabel={(l) => label(r, l)} />)}
       <Body muted style={{ fontSize: 13 }}>Below 10 dB usually means poor skin contact: press the sensor on firmly or move it onto the muscle belly and redo.</Body>
       <View style={{ flexDirection: "row", gap: 8 }}>
@@ -163,6 +200,7 @@ function ResultCard({ r, onReference, onLabel }: { r: Result; onReference: () =>
       <Text style={{ color: r.cal ? t.muted : t.bad, fontVariant: ["tabular-nums"] }}>
         {r.cal ? `Rest ${r.cal.restRms.toFixed(1)} µV · max ${r.cal.mvcRms.toFixed(0)} µV · ${r.cal.snrDb.toFixed(0)} dB` : "No data received"}
       </Text>
+      <Button small title="Photo check" onPress={() => router.push({ pathname: "/photo", params: { muscle: r.p.muscle, side: r.p.side } })} />
       {r.v ? (
         <View style={{ gap: 6 }}>
           <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
@@ -175,7 +213,6 @@ function ResultCard({ r, onReference, onLabel }: { r: Result; onReference: () =>
               push-back {fmtR(r.fp.ratios.push)} · arm-out {fmtR(r.fp.ratios.abduct)}{r.fp.ratios.raise !== undefined ? ` · raise ${fmtR(r.fp.ratios.raise)}` : ""} · {r.fp.mdf.toFixed(0)} Hz · hum {(r.fp.hum * 100).toFixed(0)}%
             </Text>
           ) : null}
-          <Button small title="Photo check" onPress={() => router.push({ pathname: "/photo", params: { muscle: r.p.muscle, side: r.p.side } })} />
           {r.v.status !== "no-reference" && r.fp ? (
             <>
               <Button small title="Set this as my reference" onPress={onReference} />

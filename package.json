@@ -26,6 +26,8 @@
   "devDependencies": {
     "@types/node": "^26.6.2",
     "@types/react": "~19.2.2",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~57.0.2",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3"
   },
@@ -35,7 +37,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/workout.test.ts && tsx tests/placement.test.ts && tsx tests/photo.test.ts && tsx tests/realdata.test.ts"
+    "test": "tsx tests/workout.test.ts && tsx tests/placement.test.ts && tsx tests/photo.test.ts && tsx tests/realdata.test.ts",
+    "lint": "expo lint"
   },
   "private": true
 }

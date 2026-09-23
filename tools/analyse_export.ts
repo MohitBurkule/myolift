@@ -3,7 +3,7 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildLogFull, type WorkoutEvent } from "../src/core/log";
-import { ACT_DT, DEFAULT_DETECT, detectSets, movingAverage, type Channel } from "../src/core/workout";
+import { ACT_DT, DEFAULT_DETECT, DEFAULT_DIP, DEFAULT_REP, detectSets, movingAverage, type Channel } from "../src/core/workout";
 
 const root = process.argv[2], out: Record<string, unknown> = {};
 for (const wid of readdirSync(join(root, "workouts")).sort()) {
@@ -21,12 +21,15 @@ for (const wid of readdirSync(join(root, "workouts")).sort()) {
     for (let k = 0; k < bins.length; k++) v[k] = (bins[k] * 100) / cal.ref.mvcRms;
     channels.push({ key: s.id, side: p.side, muscle: p.muscle, ref: cal.ref, act: { t0: 0, v: movingAverage(v, 10) } });
   }
-  const sets = detectSets(channels, DEFAULT_DETECT);
+  // same rule as the app: machine pushdowns count lockout dips
+  const exAt = (t: number) => [...events].filter((e: any) => e.type === "exercise" && e.t <= t + 2000).pop() as any;
+  const repParams = (t: number) => { const n = (exAt(t)?.name ?? "").toLowerCase(); return /machine/.test(n) && /push ?down|dip/.test(n) ? DEFAULT_DIP : DEFAULT_REP; };
+  const sets = detectSets(channels, { ...DEFAULT_DETECT, repParams });
   const log = buildLogFull(sets, events);
   console.log(`== ${wid}`);
   for (const s of log.sets) {
     const sides = s.sides.map((x) => `${x.side[0].toUpperCase()}${x.reps.length}`).join(" ");
-    console.log(`  ${(s.start / 1000).toFixed(0).padStart(4)}-${(s.end / 1000).toFixed(0).padEnd(4)}s ${s.exerciseName.slice(0, 22).padEnd(22)} ${String(s.weight).padStart(5)} kg  reps ${String(s.reps).padStart(2)} (${sides})  ranges ${JSON.stringify(s.ranges)}${s.segments ? "  segments " + s.segments.map((g) => `${g.weight}x${g.reps}`).join(" ") : ""}`);
+    console.log(`  ${(s.start / 1000).toFixed(0).padStart(4)}-${(s.end / 1000).toFixed(0).padEnd(4)}s ${s.exerciseName.slice(0, 22).padEnd(22)} ${String(s.weight).padStart(5)} kg  full ${String(s.reps).padStart(2)} + ${s.partials} partial (${sides})  ranges ${JSON.stringify(s.ranges)}${s.segments ? "  segments " + s.segments.map((g) => `${g.weight}x${g.reps}`).join(" ") : ""}`);
   }
   for (const i of log.ignored) console.log(`  ignored ${(i.start / 1000).toFixed(0)}-${(i.end / 1000).toFixed(0)}s: ${i.reason}`);
   out[wid] = sets;

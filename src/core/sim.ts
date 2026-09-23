@@ -68,7 +68,7 @@ export function simulateArm(sets: SimSet[], arm: SimArm, seconds: number, fs = 9
  */
 
 export class DemoArm {
-  hint: "rest" | "mvc" | "push" | "abduct" | "raise" | null = null;
+  hint: "rest" | "mvc" | "push" | "abduct" | "raise" | "identify" | null = null;
   private seq = 0;
   private i = 0;
   private lp = 0;

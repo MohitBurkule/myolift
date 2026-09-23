@@ -3,7 +3,7 @@ import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from "rea
 import { router, useLocalSearchParams } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { Side } from "../core/log";
-import { compareSpots, type SensorSpot } from "../core/sensorspot";
+import { compareSpots, mirrorSpot, type SensorSpot } from "../core/sensorspot";
 import { Body, Button, Card, Title } from "../components/ui";
 import { analysePhoto, keepPhoto } from "../lib/photo";
 import { getSettings, updateSettings, useSettings } from "../lib/settings";
@@ -13,7 +13,8 @@ import { addEvent } from "../lib/workout";
 /**
  * Photo check of a sensor position. The reference photo is shown faintly over the camera so the
  * arm can be framed the same way; the sensor is then found in both photos (red ELEMYO logo) and
- * compared: how far it moved and how much it's rotated.
+ * compared: how far it moved and how much it's rotated. A reference taken on one arm can be
+ * mirrored and used for the other arm.
  */
 export default function PhotoScreen() {
   const t = useTheme();
@@ -21,6 +22,12 @@ export default function PhotoScreen() {
   const key = `${muscle}|${side}`;
   const s = useSettings();
   const ref = s.placementPhotos[key];
+  const otherSide: Side = side === "left" ? "right" : "left";
+  const otherRef = s.placementPhotos[`${muscle}|${otherSide}`];
+  const mirror = !!ref?.mirrored;
+  const refSpot = ref?.spot ? (mirror ? mirrorSpot(ref.spot) : ref.spot) : null;
+  const saveRef = (patch: Partial<NonNullable<typeof ref>> & { uri: string }) =>
+    updateSettings({ placementPhotos: { ...getSettings().placementPhotos, [key]: { spot: null, at: Date.now(), facing, mirrored: false, ...patch } } });
   const [perm, requestPerm] = useCameraPermissions();
   const cam = useRef<CameraView>(null);
   const [ready, setReady] = useState(false);
@@ -48,14 +55,14 @@ export default function PhotoScreen() {
   }
 
   if (shot) {
-    const diff = shot.spot && ref?.spot ? compareSpots(shot.spot, ref.spot) : null;
+    const diff = shot.spot && refSpot ? compareSpots(shot.spot, refSpot) : null;
     const messages = !shot.spot
       ? ["Couldn't find the sensor in the photo. Make sure the red ELEMYO logo is visible and well lit, then retake."]
       : diff ? diff.messages : ["Sensor found. Save this as the reference photo for this position."];
     return (
       <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>
         <Title>{side} {muscle}</Title>
-        <Marked uri={shot.uri} spot={shot.spot} refSpot={ref?.spot ?? null} aspect={shot.w / shot.h} />
+        <Marked uri={shot.uri} spot={shot.spot} refSpot={refSpot} aspect={shot.w / shot.h} />
         <Card style={{ padding: 12, gap: 6 }}>
           {messages.map((m, i) => <Text key={i} style={{ color: t.ink }}>• {m}</Text>)}
           {diff ? <Text style={{ color: t.muted, fontSize: 12 }}>Distances are estimated from the logo size, so they're only as good as the framing. The green ring is the reference position, the blue ring is today.</Text> : null}
@@ -63,13 +70,13 @@ export default function PhotoScreen() {
         <View style={{ flexDirection: "row", gap: 8 }}>
           <Button title="Retake" style={{ flex: 1 }} onPress={() => setShot(null)} />
           <Button title={ref ? "Done" : "Save as reference"} variant="primary" style={{ flex: 1 }} disabled={!shot.spot && !ref} onPress={() => {
-            if (!ref && shot.spot) updateSettings({ placementPhotos: { ...getSettings().placementPhotos, [key]: { uri: shot.uri, spot: shot.spot, at: Date.now(), facing } } });
+            if (!ref && shot.spot) saveRef({ uri: shot.uri, spot: shot.spot });
             addEvent({ type: "photo", muscle, side, uri: shot.uri, messages });
             router.back();
           }} />
         </View>
         {ref && shot.spot ? <Button small title="Replace the reference with this photo" onPress={() => {
-          updateSettings({ placementPhotos: { ...getSettings().placementPhotos, [key]: { uri: shot.uri, spot: shot.spot, at: Date.now(), facing } } });
+          saveRef({ uri: shot.uri, spot: shot.spot });
           router.back();
         }} /> : null}
       </ScrollView>
@@ -79,21 +86,32 @@ export default function PhotoScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <CameraView ref={cam} style={{ flex: 1 }} facing={facing} onCameraReady={() => setReady(true)} />
-      {ref ? <Image source={{ uri: ref.uri }} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, opacity: 0.35, transform: facing === "front" && ref.facing === "front" ? [{ scaleX: -1 }] : [] }} resizeMode="cover" /> : null}
+      {ref ? <Image source={{ uri: ref.uri }} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, opacity: 0.35, transform: (facing === "front" && ref.facing === "front") !== mirror ? [{ scaleX: -1 }] : [] }} resizeMode="cover" /> : null}
       <View style={{ position: "absolute", left: 12, right: 12, top: 12, padding: 10, borderRadius: 12, backgroundColor: "rgba(0,0,0,0.55)" }}>
         <Text style={{ color: "#fff", fontWeight: "700" }}>{side} {muscle}</Text>
-        <Text style={{ color: "#ddd", fontSize: 13 }}>{ref ? "Line your arm up with the faint reference photo, same distance and angle, then take the photo." : "Arm relaxed, sensor and ELEMYO logo clearly visible, shoulder at the top of the frame. This becomes the reference."}</Text>
+        <Text style={{ color: "#ddd", fontSize: 13 }}>{ref ? `Line your arm up with the faint reference photo${mirror ? ` (your ${otherSide} arm's photo, mirrored)` : ""}, same distance and angle, then take the photo.` : "Arm relaxed, sensor and ELEMYO logo clearly visible, shoulder at the top of the frame. This becomes the reference."}</Text>
+        {!ref && otherRef ? (
+          <Pressable onPress={() => saveRef({ uri: otherRef.uri, spot: otherRef.spot, facing: otherRef.facing, mirrored: !otherRef.mirrored })} accessibilityRole="button"
+            style={{ marginTop: 8, alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: "#fff" }}>
+            <Text style={{ color: "#000", fontWeight: "700" }}>Use my {otherSide} arm's photo, mirrored</Text>
+          </Pressable>
+        ) : null}
       </View>
       <View style={{ position: "absolute", left: 0, right: 0, bottom: 24, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 28 }}>
         <Pressable onPress={() => setFacing((f) => (f === "front" ? "back" : "front"))} accessibilityRole="button" accessibilityLabel="Switch camera"
           style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, backgroundColor: "rgba(0,0,0,0.5)" }}>
-          <Text style={{ color: "#fff", fontWeight: "600" }}>Flip</Text>
+          <Text style={{ color: "#fff", fontWeight: "600" }}>Switch camera</Text>
         </Pressable>
         <Pressable onPress={take} disabled={!ready || busy} accessibilityRole="button" accessibilityLabel="Take photo"
           style={{ width: 74, height: 74, borderRadius: 37, borderWidth: 5, borderColor: "#fff", alignItems: "center", justifyContent: "center", opacity: ready ? 1 : 0.5 }}>
           {busy ? <ActivityIndicator color="#fff" /> : <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: "#fff" }} />}
         </Pressable>
-        <View style={{ width: 56 }} />
+        {ref ? (
+          <Pressable onPress={() => saveRef({ ...ref, mirrored: !mirror })} accessibilityRole="button" accessibilityLabel="Mirror the reference photo"
+            style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, backgroundColor: mirror ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.5)" }}>
+            <Text style={{ color: mirror ? "#000" : "#fff", fontWeight: "600" }}>Mirror</Text>
+          </Pressable>
+        ) : <View style={{ width: 56 }} />}
       </View>
     </View>
   );

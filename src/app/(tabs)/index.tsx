@@ -14,6 +14,7 @@ import { addDemoSensor, nativeAvailable, useSensors } from "../../lib/sensors";
 import { updateSettings, useSettings } from "../../lib/settings";
 import { clock, useTheme } from "../../lib/theme";
 import { addEvent, endWorkout, isPaused, liveLogFull, refKey, startWorkout, useWorkout, workoutTime } from "../../lib/workout";
+import { UpdateBanner } from "../../components/UpdateBanner";
 
 export default function WorkoutScreen() {
   const t = useTheme();
@@ -32,6 +33,7 @@ export default function WorkoutScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingTop: insets.top + 12, gap: 12, paddingBottom: 100 }}>
+        {!active ? <UpdateBanner /> : null}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Title style={{ flex: 1 }}>{active ? w.active!.meta.name : "MyoLift"}</Title>
           {active ? (

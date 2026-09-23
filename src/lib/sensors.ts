@@ -282,3 +282,9 @@ function stopDemo(s: LiveSensor) {
 export function setDemoHint(hint: DemoArm["hint"]) {
   for (const s of sensors.values()) if (s.demo) s.demo.hint = hint;
 }
+
+/** One demo sensor only (the "left arm only" step). */
+export function setDemoHintFor(id: string, hint: DemoArm["hint"]) {
+  const s = sensors.get(id);
+  if (s?.demo) s.demo.hint = hint;
+}

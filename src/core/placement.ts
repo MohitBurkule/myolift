@@ -6,7 +6,7 @@
  * higher") teach it what each mistake looks like on this person's arm.
  */
 
-export type StepId = "rest" | "mvc" | "push" | "abduct" | "raise";
+export type StepId = "rest" | "mvc" | "push" | "abduct" | "raise" | "identify";
 
 export interface Step {
   id: StepId;
@@ -238,3 +238,43 @@ export function compare(now: Fingerprint, ref: Fingerprint | null, library: Labe
 }
 
 export const OFFSET_LABELS = ["2 cm higher", "2 cm lower", "more outer", "more inner", "rotated", "loose strap"];
+
+/** First step when a muscle has a sensor on each arm: work only the left arm, so the app can tell the two identical sensors apart. */
+export function identifyStep(muscle: string): Step {
+  const how: Record<string, string> = {
+    triceps: "straighten it and tense the triceps hard",
+    biceps: "bend it and flex the biceps hard",
+    forearms: "make a tight fist",
+  };
+  return { id: "identify", title: "Left arm", text: `Only your LEFT arm: ${how[muscle] ?? "tense the muscle hard"}. Keep the right arm relaxed.`, seconds: 4 };
+}
+
+export interface ArmPlacement { sensorId: string; muscle: string; side: "left" | "right" }
+export interface ArmCheck { sensorId: string; muscle: string; side: "left" | "right"; changed: boolean }
+
+/** Muscles with exactly two sensors: the ones to identify. */
+export function armPairs<P extends ArmPlacement>(ps: P[]): P[][] {
+  const by = new Map<string, P[]>();
+  for (const p of ps) by.set(p.muscle, [...(by.get(p.muscle) ?? []), p]);
+  return [...by.values()].filter((g) => g.length === 2);
+}
+
+/**
+ * Which sensor is on the left arm: the one that fired while only the left arm worked
+ * (median envelope at least 1.8x the other). Returns null for a pair it can't tell apart.
+ */
+export function assignArms<P extends ArmPlacement>(ps: P[], env: Map<string, number[]>, fs: number): { placements: P[]; checks: ArmCheck[]; unsure: string[] } {
+  const level = (id: string) => { const e = (env.get(id) ?? []).slice(Math.round(fs)).filter((v) => v === v).sort((a, b) => a - b); return e.length ? e[e.length >> 1] : 0; };
+  const out = new Map(ps.map((p) => [p.sensorId, p]));
+  const checks: ArmCheck[] = [], unsure: string[] = [];
+  for (const [a, b] of armPairs(ps)) {
+    const la = level(a.sensorId), lb = level(b.sensorId);
+    if (Math.max(la, lb) < 1.8 * Math.max(Math.min(la, lb), 1e-9)) { unsure.push(a.muscle); continue; }
+    const [left, right] = la > lb ? [a, b] : [b, a];
+    for (const [p, side] of [[left, "left"], [right, "right"]] as const) {
+      out.set(p.sensorId, { ...p, side });
+      checks.push({ sensorId: p.sensorId, muscle: p.muscle, side, changed: p.side !== side });
+    }
+  }
+  return { placements: ps.map((p) => out.get(p.sensorId)!), checks, unsure };
+}

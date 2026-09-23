@@ -39,10 +39,15 @@ export interface Settings {
   restGapS: number;
   /** placement check during calibration (extra movements) */
   placementCheck: boolean;
+  /** start calibration with "left arm only" to tell two sensors on the same muscle apart */
+  identifyArms: boolean;
+  /** download and install new GitHub builds when the app opens (not during a workout) */
+  autoUpdate: boolean;
   /** reference placement fingerprint per "muscle|side", plus labelled offsets it has learned */
   placementRefs: Record<string, { ref: Fingerprint; at: number; offsets: Labelled[] }>;
   /** reference photo per "muscle|side" (file uri + detected sensor) */
-  placementPhotos: Record<string, { uri: string; spot: SensorSpot | null; at: number; facing: "front" | "back" }>;
+  /** mirrored: show and compare the photo flipped left-right (a reference taken on the other arm) */
+  placementPhotos: Record<string, { uri: string; spot: SensorSpot | null; at: number; facing: "front" | "back"; mirrored?: boolean }>;
   /** weight stack per exercise id (weights the machine offers); cable/machine exercises default to the common pin stack */
   stacks: Record<string, number[]>;
   /** one arm at a time per exercise id (overrides the default from the name) */
@@ -83,6 +88,8 @@ const DEFAULTS: Settings = {
   refs: {},
   restGapS: 6,
   placementCheck: true,
+  identifyArms: true,
+  autoUpdate: true,
   placementRefs: {},
   placementPhotos: {},
   stacks: {},

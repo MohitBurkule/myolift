@@ -51,7 +51,7 @@ tap "Use this sensor"; sleep 2; shot 03-placed
 tap "Take reference photo"; sleep 5; alive; shot 03b-camera
 adb shell input keyevent KEYCODE_BACK; sleep 2
 tap_scroll "Calibrate these positions"; sleep 2
-tap "Start"; sleep 30; shot 04-calibration
+tap "Start"; sleep 42; shot 04-calibration
 has "Results" || fail "calibration results not shown"
 has "New reference" || fail "placement check result not shown"
 tap_scroll "Save"; sleep 2
