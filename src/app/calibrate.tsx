@@ -175,6 +175,7 @@ function ResultCard({ r, onReference, onLabel }: { r: Result; onReference: () =>
               push-back {fmtR(r.fp.ratios.push)} · arm-out {fmtR(r.fp.ratios.abduct)}{r.fp.ratios.raise !== undefined ? ` · raise ${fmtR(r.fp.ratios.raise)}` : ""} · {r.fp.mdf.toFixed(0)} Hz · hum {(r.fp.hum * 100).toFixed(0)}%
             </Text>
           ) : null}
+          <Button small title="Photo check" onPress={() => router.push({ pathname: "/photo", params: { muscle: r.p.muscle, side: r.p.side } })} />
           {r.v.status !== "no-reference" && r.fp ? (
             <>
               <Button small title="Set this as my reference" onPress={onReference} />

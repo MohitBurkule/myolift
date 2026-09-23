@@ -5,6 +5,7 @@ import type { Calibration } from "../core/calibration";
 import type { Placement, Unit } from "../core/log";
 import type { Reference } from "../core/workout";
 import type { Fingerprint, Labelled } from "../core/placement";
+import type { SensorSpot } from "../core/sensorspot";
 
 export type ViewMode = "filtered" | "raw" | "envelope";
 export type YScale = "auto" | "hold" | "mvc" | "100" | "250" | "500" | "1000" | "2500";
@@ -40,6 +41,8 @@ export interface Settings {
   placementCheck: boolean;
   /** reference placement fingerprint per "muscle|side", plus labelled offsets it has learned */
   placementRefs: Record<string, { ref: Fingerprint; at: number; offsets: Labelled[] }>;
+  /** reference photo per "muscle|side" (file uri + detected sensor) */
+  placementPhotos: Record<string, { uri: string; spot: SensorSpot | null; at: number; facing: "front" | "back" }>;
 }
 
 const DEFAULTS: Settings = {
@@ -66,6 +69,7 @@ const DEFAULTS: Settings = {
   restGapS: 6,
   placementCheck: true,
   placementRefs: {},
+  placementPhotos: {},
 };
 
 const file = () => new File(Paths.document, "settings.json");

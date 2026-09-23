@@ -48,6 +48,8 @@ has "Put the sensors on" || fail "first-run screen not shown"
 tap "Try demo sensors"; sleep 4; shot 02-sensors
 tap "Use this sensor"; sleep 2
 tap "Use this sensor"; sleep 2; shot 03-placed
+tap "Take reference photo"; sleep 5; alive; shot 03b-camera
+adb shell input keyevent KEYCODE_BACK; sleep 2
 tap_scroll "Calibrate these positions"; sleep 2
 tap "Start"; sleep 30; shot 04-calibration
 has "Results" || fail "calibration results not shown"

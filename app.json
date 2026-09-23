@@ -20,8 +20,9 @@
       "package": "com.mohitburkule.myolift",
       "versionCode": 1,
       "blockedPermissions": [
-        "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
@@ -30,7 +31,15 @@
     },
     "plugins": [
       "expo-router",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "MyoLift uses the camera to photograph where the sensor sits on your arm, so you can put it back in the same place.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ]
     ],
     "scheme": "myolift"
   }

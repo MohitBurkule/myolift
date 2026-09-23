@@ -33,7 +33,10 @@ export default function SensorsScreen() {
               options={[{ value: "left", label: "Left" }, { value: "right", label: "Right" }]} />
             <Choice label="Muscle" value={p?.muscle ?? ""} onChange={(v) => update(x.id, x.name, { muscle: v })}
               options={MUSCLE_CHOICES.map((m) => ({ value: m, label: m[0].toUpperCase() + m.slice(1) }))} />
-            {!p ? <Button small title="Use this sensor" onPress={() => update(x.id, x.name, {})} /> : null}
+            {!p ? <Button small title="Use this sensor" onPress={() => update(x.id, x.name, {})} /> : (
+              <Button small title={s.placementPhotos[`${p.muscle}|${p.side}`] ? "Photo check" : "Take reference photo"}
+                onPress={() => router.push({ pathname: "/photo", params: { muscle: p.muscle, side: p.side } })} />
+            )}
           </Card>
         );
       })}

@@ -25,7 +25,8 @@ export type WorkoutEvent =
   | { t: number; type: "placement"; placements: Placement[] }
   | { t: number; type: "calibration"; sensorId: string; muscle: string; side: Side; ref: Reference; snrDb: number; fingerprint?: Fingerprint; placement?: { status: string; similarity: number | null; messages: string[] } }
   | { t: number; type: "setEdit"; setStart: number; patch: SetPatch }
-  | { t: number; type: "note"; text: string };
+  | { t: number; type: "note"; text: string }
+  | { t: number; type: "photo"; muscle: string; side: Side; uri: string; messages: string[] };
 
 export interface SetPatch {
   deleted?: boolean;
