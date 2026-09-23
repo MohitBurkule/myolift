@@ -103,6 +103,7 @@ export default function CalibrateScreen() {
 
   if (phase.kind === "intro") return (
     <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={{ padding: 16, gap: 14 }}>
+      <Button title="Start" variant="primary" disabled={!placements.length} onPress={run} />
       <Body>Calibrating makes everything "% of today's max", so sessions compare even though dry electrodes sit a little differently each time.</Body>
       {s.placementCheck ? (
         <Body>The placement check adds a few movements. Each one works a different muscle or head, so the app can tell whether the sensor is where it was last time: higher, more outer or inner, rotated, or just poorly in contact.</Body>
@@ -119,7 +120,6 @@ export default function CalibrateScreen() {
       </Card>
       <Toggle label="Placement check" hint="Adds the extra movements (about 12 s)." value={s.placementCheck} onChange={(v) => updateSettings({ placementCheck: v })} />
       {muscles.length > 1 ? <Body muted style={{ fontSize: 13 }}>Sensors are on different muscles, so only rest + squeeze run.</Body> : null}
-      <Button title="Start" variant="primary" disabled={!placements.length} onPress={run} />
     </ScrollView>
   );
 
