@@ -2,7 +2,7 @@ import React, { useCallback, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as Sharing from "expo-sharing";
-import { totals, type LoggedSet } from "../../core/log";
+import { calibrationHeadroom, totals, type LoggedSet } from "../../core/log";
 import { SetCard } from "../../components/SetCard";
 import { Body, Button, Card, Label, Title } from "../../components/ui";
 import { shortName } from "../../lib/exercises";
@@ -64,6 +64,15 @@ export default function WorkoutDetail() {
           <Body muted style={{ fontSize: 12 }}>Caveats: EMG amplitude also rises with fatigue at the same load, and the area only means something relative to today's calibration. Compare it between sessions for the same exercise and sensor spot, and read it alongside the weight. It isn't a validated hypertrophy measure.</Body>
         </Card>
       ) : null}
+      {(() => {
+        const over = calibrationHeadroom(all.map((x) => x.set));
+        return over.length ? (
+          <Card style={{ padding: 12, gap: 4, borderColor: t.warn }}>
+            <Text style={{ color: t.warn, fontWeight: "700" }}>Calibration squeeze was weaker than your sets</Text>
+            <Body style={{ fontSize: 13 }}>{over.map((o) => `${o.side} ${o.muscle} reached ${Math.round(o.peak)}%`).join(", ")} of the calibrated maximum, so the percentages are inflated. Next time squeeze against the machine: push the rope down hard against a heavy weight and hold at lockout.</Body>
+          </Card>
+        ) : null;
+      })()}
       {ws.some((w) => !w.analysed) ? <Body muted style={{ fontSize: 13 }}>Showing the live result. The full analysis (with fatigue per rep) runs from the raw recording.</Body> : null}
       {groups.map((g) => (
         <View key={g.key} style={{ gap: 8 }}>

@@ -168,7 +168,7 @@ test("partial reps: full, top-half and bottom-half reps counted and classified",
   const full = { liftS: 1, lowerS: 1.4, level: 0.7 };
   const reps = [
     ...repeat(4, full),
-    ...repeat(4, { liftS: 0.6, lowerS: 0.7, pauseS: 0.1, level: 0.7, floor: 0.6 }),  // top half: never relaxes
+    ...repeat(4, { liftS: 0.6, lowerS: 0.7, pauseS: 0.1, level: 0.7, floor: 0.5 }),  // top half: never relaxes (real burnout partials swing ~half the range)
     ...repeat(4, { liftS: 0.6, lowerS: 0.7, level: 0.4 }),                        // bottom half: never reaches the top
   ];
   const sets: SimSet[] = [{ startS: 5, arms: ["right"], reps }];

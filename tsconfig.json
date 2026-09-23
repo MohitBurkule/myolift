@@ -5,6 +5,7 @@
   },
   "exclude": [
     "tests",
+    "tools",
     "node_modules"
   ]
 }

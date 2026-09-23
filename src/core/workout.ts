@@ -152,17 +152,23 @@ function quantile(values: number[], q: number) {
  * found too; each rep is then classified by how high it peaks and how far it relaxes
  * compared with the set's full reps (see classifyRange). A long hold is one peak, so it counts once.
  */
+/** Rep detection knobs (exported for tuning against recorded data). */
+export const REP_TUNING = { promFrac: 0.3, sepS: 0.8, usePeriod: false, periodFrac: 0.4, smooth: 10 };
+
 export function detectReps(act: Activation, span: Span): Rep[] {
   const { a, b } = slice(act, span);
-  const x = movingAverage(act.v.subarray(a, b) as Float32Array, 12); // 240 ms
+  const x = movingAverage(act.v.subarray(a, b) as Float32Array, REP_TUNING.smooth); // 240 ms
   const vals: number[] = [];
   for (let i = 0; i < x.length; i++) if (x[i] === x[i]) vals.push(x[i]);
   if (vals.length < ACT_HZ) return [];
   const p10 = quantile(vals, 0.1), p95 = quantile(vals, 0.95), range = p95 - p10;
   if (range < 3) return [];
-  const minProm = Math.max(0.18 * range, 3), minLevel = p10 + 0.25 * range;
-  const minSep = Math.round(0.7 * ACT_HZ);
   const n = x.length;
+  // the set's own rhythm: rep period from the autocorrelation (as in RecoFit's rep counter)
+  const period = REP_TUNING.usePeriod ? repPeriod(x) : null;
+  // a rep swings a good part of the set's range; bumps on a plateau are much smaller
+  const minProm = Math.max(REP_TUNING.promFrac * range, 3), minLevel = p10 + 0.25 * range;
+  const minSep = Math.round(Math.max(REP_TUNING.sepS, period ? REP_TUNING.periodFrac * period : 0) * ACT_HZ);
   const at = (i: number) => (x[i] === x[i] ? x[i] : -Infinity);
   // local maxima (plateaus: first sample)
   let peaks: number[] = [];
@@ -208,6 +214,36 @@ export function detectReps(act: Activation, span: Span): Rep[] {
   }
   classifyRange(reps, p10);
   return reps;
+}
+
+/** Typical rep period (s) of a set from the autocorrelation of its activation, or null if no clear rhythm. */
+export function repPeriod(x: Float32Array): number | null {
+  const n = x.length;
+  let m = 0, c = 0;
+  for (let i = 0; i < n; i++) if (x[i] === x[i]) { m += x[i]; c++; }
+  if (c < 4 * ACT_HZ) return null;
+  m /= c;
+  const d = new Float32Array(n);
+  let v0 = 0;
+  for (let i = 0; i < n; i++) { d[i] = x[i] === x[i] ? x[i] - m : 0; v0 += d[i] * d[i]; }
+  if (!(v0 > 0)) return null;
+  const lo = Math.round(0.8 * ACT_HZ), hi = Math.min(Math.round(12 * ACT_HZ), Math.floor(n / 2));
+  const acf = new Float32Array(hi + 2);
+  for (let lag = lo - 1; lag <= hi + 1 && lag < n; lag++) {
+    let sum = 0;
+    for (let i = 0; i + lag < n; i++) sum += d[i] * d[i + lag];
+    acf[lag] = sum / v0 * (n / (n - lag)); // unbiased
+  }
+  // first clear local maximum above 0.2: the fundamental, not a multiple
+  for (let lag = lo; lag <= hi; lag++) {
+    if (acf[lag] > 0.2 && acf[lag] >= acf[lag - 1] && acf[lag] >= acf[lag + 1]) {
+      // refine: prefer the strongest peak within ±20 %
+      let best = lag;
+      for (let k = lag; k <= Math.min(hi, Math.round(lag * 1.2)); k++) if (acf[k] > acf[best]) best = k;
+      return best / ACT_HZ;
+    }
+  }
+  return null;
 }
 
 export type RepRange = "full" | "top" | "bottom" | "mid";
@@ -353,8 +389,18 @@ export interface Flag {
   text: string;
 }
 
-function sideResult(ch: Channel, span: Span): SideResult {
-  const reps = detectReps(ch.act, span);
+/** Per-arm numbers for reps whose timing was found on the combined signal of both arms. */
+function repsFromTiming(ch: Channel, timing: Rep[]): Rep[] {
+  const at = (t: number) => { const i = Math.round((t - ch.act.t0) / ACT_DT); const v = ch.act.v[i]; return v === v ? v : NaN; };
+  return timing.map((r) => {
+    let peak = -Infinity, sum = 0, c = 0, pT = r.peakT;
+    for (let t = r.start; t <= r.end; t += ACT_DT) { const v = at(t); if (v === v) { sum += v; c++; if (v > peak) { peak = v; pT = t; } } }
+    return { ...r, peakT: pT, peak: peak === -Infinity ? 0 : peak, mean: c ? sum / c : 0, valleyBefore: at(r.start), valleyAfter: at(r.end) };
+  });
+}
+
+function sideResult(ch: Channel, span: Span, timing?: Rep[]): SideResult {
+  const reps = timing ? repsFromTiming(ch, timing) : detectReps(ch.act, span);
   const setPeak = reps.length ? Math.max(...reps.map((r) => r.peak)) : 0;
   const holds = detectHolds(ch.act, span, setPeak);
   const { a, b } = slice(ch.act, span);
@@ -396,22 +442,43 @@ export function detectSets(channels: Channel[], opt: DetectOptions = DEFAULT_DET
   const spans: (Span & { key: string })[] = [];
   for (const ch of channels) for (const s of activeSpans(ch.act, ch.ref, opt)) spans.push({ ...s, key: ch.key });
   spans.sort((x, y) => x.start - y.start);
+  // union of overlapping spans across all sensors: both arms working together = one set; a
+  // sensor whose activity bridges two of the other's spans joins them (never two overlapping sets)
   const groups: { start: number; end: number; keys: Set<string> }[] = [];
   for (const s of spans) {
     const g = groups[groups.length - 1];
-    const overlap = g ? Math.min(g.end, s.end) - Math.max(g.start, s.start) : -1;
-    const shorter = g ? Math.min(g.end - g.start, s.end - s.start) : 1;
-    if (g && overlap > 0.4 * shorter && !g.keys.has(s.key)) { g.start = Math.min(g.start, s.start); g.end = Math.max(g.end, s.end); g.keys.add(s.key); }
+    if (g && s.start < g.end) { g.end = Math.max(g.end, s.end); g.keys.add(s.key); }
     else groups.push({ start: s.start, end: s.end, keys: new Set([s.key]) });
   }
   const out: DetectedSet[] = [];
   for (const g of groups) {
-    const sides = channels.filter((c) => g.keys.has(c.key)).map((c) => sideResult(c, g));
+    const members = channels.filter((c) => g.keys.has(c.key));
+    // both arms on the same muscle: find the reps once on their average (more robust, and both
+    // arms agree on the count), then measure each arm on its own signal
+    let timing: Rep[] | undefined;
+    if (members.length === 2 && members[0].muscle === members[1].muscle && members[0].side !== members[1].side) {
+      const combined = averageActivation(members[0].act, members[1].act);
+      timing = detectReps(combined, g);
+    }
+    const sides = members.map((c) => sideResult(c, g, timing));
     const reps = Math.max(0, ...sides.map((s) => s.reps.length));
     if (reps < opt.minReps) continue;
     out.push({ start: g.start, end: g.end, sides, reps, flags: formFlags(sides) });
   }
   return out;
+}
+
+function averageActivation(a: Activation, b: Activation): Activation {
+  const t0 = Math.min(a.t0, b.t0), t1 = Math.max(a.t0 + a.v.length * ACT_DT, b.t0 + b.v.length * ACT_DT);
+  const n = Math.round((t1 - t0) / ACT_DT), v = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = t0 + i * ACT_DT;
+    const ia = Math.round((t - a.t0) / ACT_DT), ib = Math.round((t - b.t0) / ACT_DT);
+    const x = a.v[ia], y = b.v[ib];
+    const okx = ia >= 0 && ia < a.v.length && x === x, oky = ib >= 0 && ib < b.v.length && y === y;
+    v[i] = okx && oky ? (x + y) / 2 : okx ? x : oky ? y : NaN;
+  }
+  return { t0, v };
 }
 
 /* ---------------- form feedback ---------------- */

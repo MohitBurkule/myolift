@@ -119,8 +119,10 @@ export function buildLogFull(detected: DetectedSet[], events: WorkoutEvent[], de
       const cuts = [d.start, ...mid.map((m) => m.t), d.end];
       const weights = [set.weight ?? 0, ...mid.map((m) => m.value)];
       const repsOf = (a: number, b: number) => Math.max(0, ...d.sides.map((s) => s.reps.filter((r: Rep) => r.peakT >= a && r.peakT < b).length));
-      set.segments = weights.map((wt, i) => ({ weight: wt, start: cuts[i], end: cuts[i + 1], reps: repsOf(cuts[i], cuts[i + 1]) }));
-      set.group = "drop";
+      // quick successive taps (14.7 -> 12.7 -> 10.7) leave empty segments: keep only the ones with reps
+      set.segments = weights.map((wt, i) => ({ weight: wt, start: cuts[i], end: cuts[i + 1], reps: repsOf(cuts[i], cuts[i + 1]) })).filter((g) => g.reps > 0);
+      if (set.segments.length < 2) { if (set.segments.length === 1) set.weight = set.segments[0].weight; set.segments = undefined; }
+      else set.group = "drop";
     }
     // user corrections
     for (const e of edits) {
@@ -150,6 +152,19 @@ export function buildLogFull(detected: DetectedSet[], events: WorkoutEvent[], de
     b.group = kind; b.groupId = a.groupId;
   }
   return { sets, ignored };
+}
+
+/**
+ * Did the sets go well above the calibrated maximum? Then the calibration squeeze was weak and
+ * every % is inflated. Returns the highest mean rep peak per side, in % of the calibration.
+ */
+export function calibrationHeadroom(sets: LoggedSet[]): { side: Side; muscle: string; peak: number }[] {
+  const best = new Map<string, { side: Side; muscle: string; peak: number }>();
+  for (const s of sets) for (const x of s.sides) {
+    const k = x.side + x.muscle;
+    if (!best.has(k) || best.get(k)!.peak < x.peak) best.set(k, { side: x.side, muscle: x.muscle, peak: x.peak });
+  }
+  return [...best.values()].filter((b) => b.peak > 110);
 }
 
 /** Placement and calibration in force at time t. */

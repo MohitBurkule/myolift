@@ -21,7 +21,7 @@ export function protocol(muscle: string, quick = false): Step[] {
   const steps: Record<string, Step[]> = {
     triceps: [
       rest,
-      { id: "mvc", title: "Squeeze", text: "Straighten the arm(s) hard and tense the triceps, like locking out a pushdown", seconds: 4 },
+      { id: "mvc", title: "Squeeze", text: "Lock out as hard as you can: best pushing the rope or bar down against a heavy weight and holding at the bottom (or straighten the arms and tense the triceps)", seconds: 4 },
       // long head crosses the shoulder: shoulder extension fires it, the lateral head much less
       { id: "push", title: "Push back", text: "Arm straight, push it backwards as hard as you can (against a bench, wall or your other hand)", seconds: 4 },
       // only the deltoid should work here; a lot of signal means the sensor is too high
@@ -29,7 +29,7 @@ export function protocol(muscle: string, quick = false): Step[] {
     ],
     biceps: [
       rest,
-      { id: "mvc", title: "Squeeze", text: "Bend the arm(s) to 90° and flex the biceps as hard as you can", seconds: 4 },
+      { id: "mvc", title: "Squeeze", text: "Curl as hard as you can against something that doesn't move (a heavy weight or the bar holder) at 90°, or flex the biceps hard", seconds: 4 },
       // long head of biceps assists shoulder flexion
       { id: "raise", title: "Front raise", text: "Arm straight, raise it forward to shoulder height and hold", seconds: 4 },
       { id: "abduct", title: "Arm out", text: "Lift the arm(s) out to the side to shoulder height and hold", seconds: 4 },
