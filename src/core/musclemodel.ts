@@ -270,6 +270,8 @@ export interface FitSet {
   fullTarget?: number;
   /** seconds of rest before this set (fatigue recovers in between); undefined = fresh */
   restBeforeS?: number;
+  /** reps left the user reported for this set (0 / 1.5 / 3.5 / 6): pulls the fatigue rates toward it */
+  rirTarget?: number;
 }
 
 export interface FitResult { params: ModelParams; loss: number }
@@ -280,10 +282,13 @@ export interface FitResult { params: ModelParams; loss: number }
  * gain just slams every rep into the joint stop). Tmax stays fixed: with EMG as the input only
  * gain × Tmax is identifiable.
  */
-export function fitParams(sets: FitSet[], g: ExerciseGeom, base: ModelParams = DEFAULT_MODEL): FitResult {
+export const FIT_GAINS = Array.from({ length: 18 }, (_, k) => 0.4 * 1.15 ** k); // 0.4 .. ~4.3
+export const FIT_F = [0.005, 0.01, 0.02, 0.04], FIT_R = [0.001, 0.003, 0.01];
+
+export function fitParams(sets: FitSet[], g: ExerciseGeom, base: ModelParams = DEFAULT_MODEL, grid: { gains?: number[]; F?: number[]; R?: number[] } = {}): FitResult {
   let best: FitResult = { params: base, loss: Infinity };
-  const gains = Array.from({ length: 18 }, (_, k) => 0.4 * 1.15 ** k); // 0.4 .. ~4.3
-  for (const F of [0.005, 0.01, 0.02, 0.04]) for (const R of [0.001, 0.003, 0.01]) for (const gain of gains) {
+  const gains = grid.gains ?? FIT_GAINS;
+  for (const F of grid.F ?? FIT_F) for (const R of grid.R ?? FIT_R) for (const gain of gains) {
     const p = { ...base, gain, F, R };
     let loss = 0, st: FatigueState = FRESH;
     for (const fs of sets) {
@@ -294,6 +299,7 @@ export function fitParams(sets: FitSet[], g: ExerciseGeom, base: ModelParams = D
       const lock = sim.reps.filter((r) => r.reachedLockout && !r.partialTop).length;
       loss += Math.abs(lock - target);
       loss += 2 * sim.reps.slice(0, 2).filter((r) => !r.reachedLockout).length;
+      if (fs.rirTarget !== undefined) loss += 0.5 * Math.min(6, Math.abs((sim.rir === sim.rir ? Math.min(sim.rir, 10) : 10) - fs.rirTarget));
     }
     loss += gain * 0.01;
     if (loss < best.loss) best = { params: p, loss };

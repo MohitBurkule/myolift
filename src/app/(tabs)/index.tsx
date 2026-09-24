@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,6 +15,9 @@ import { updateSettings, useSettings } from "../../lib/settings";
 import { clock, useTheme } from "../../lib/theme";
 import { addEvent, endWorkout, isPaused, liveLogFull, refKey, startWorkout, useWorkout, workoutTime } from "../../lib/workout";
 import { UpdateBanner } from "../../components/UpdateBanner";
+import { HardSetsCard } from "../../components/HardSets";
+import { RirPicker } from "../../components/RirPicker";
+import { editSet } from "../../lib/workout";
 
 export default function WorkoutScreen() {
   const t = useTheme();
@@ -28,6 +31,11 @@ export default function WorkoutScreen() {
   const paused = active && isPaused();
   const ex = s.exercise ? findExercise(s.exercise.id) : undefined;
   const grips = gripsFor(ex?.equipment);
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  // the last set that has finished (not the one being done right now), until it's rated or dismissed
+  const finished = w.live ? log.filter((x) => x.end < w.live!.start - 500) : log;
+  const toRate = active ? finished[finished.length - 1] : undefined;
+  const askRir = toRate && (toRate.rir === undefined || toRate.rir === null) && !dismissed.includes(toRate.id) ? toRate : undefined;
   const uncalibrated = s.placements.filter((p) => !s.refs[refKey(p)] || Date.now() - s.refs[refKey(p)].at > 3 * 3600_000);
 
   return (
@@ -121,6 +129,18 @@ export default function WorkoutScreen() {
           <Text style={{ color: t.muted, fontSize: 12 }}>{full.ignored.length} movement{full.ignored.length > 1 ? "s" : ""} not counted ({[...new Set(full.ignored.map((i) => i.reason))].join(", ")})</Text>
         ) : null}
 
+        {askRir ? (
+          <Card style={{ padding: 12, gap: 8 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={{ color: t.ink, fontWeight: "700", flex: 1 }}>Set {finished.length}: how many more reps could you have done?</Text>
+              <Pressable onPress={() => setDismissed((d) => [...d, askRir.id])} accessibilityRole="button" accessibilityLabel="Skip rating" hitSlop={10}>
+                <Text style={{ color: t.muted, fontWeight: "700" }}>Skip</Text>
+              </Pressable>
+            </View>
+            <RirPicker value={askRir.rir} onPick={(v) => editSet(askRir.start, { rir: v })} />
+          </Card>
+        ) : null}
+        {!active ? <HardSetsCard /> : null}
         {active && log.length ? <Label>Sets · newest first</Label> : null}
         {active ? [...log].reverse().map((set, i) => (
           <SetCard key={set.id} set={set} index={log.length - i} onPress={() => router.push({ pathname: "/set", params: { sid: set.id } })} />

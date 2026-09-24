@@ -21,7 +21,10 @@ workouts/<id>/
                  Real sample rate is ~975 Hz (sensor clock), fit it from sequence number vs arrival time.
                  A packet whose samples are all 8192 is the once-a-minute battery measurement (no EMG).
   <sensor>.act   float32 LE envelope (µV, 100 ms RMS, 20 Hz high-pass + 50 Hz notch) in 20 ms bins from t = 0
-  analysis.json  sets / reps / holds detected when the workout ended
+  analysis.json  sets / reps / holds detected when the workout ended; "model": per set id the muscle
+                 model (strength left 0..1, model reps in reserve, s under load at stretch / lockout /
+                 mid, holds passive/active/moving). Reps-left ratings the user tapped are setEdit
+                 events in events.jsonl (patch.rir: 0, 1.5 = "1–2", 3.5 = "3–4", 6 = "5+").
   status.json    end time, duration, packet counts
 settings.json    calibrations, placement references, stacks, exercises (no photos)
 `;
@@ -34,6 +37,7 @@ async function bundle(ids: string[], label: string, progress?: (msg: string) => 
   z.add("README.txt", new TextEncoder().encode(README));
   const s = getSettings();
   z.add("settings.json", new TextEncoder().encode(JSON.stringify({ ...s, placementPhotos: undefined, app: APP_VERSION }, null, 2)));
+  z.add("measurements.json", require("./measurements").measurementsJson());
   let i = 0;
   for (const id of ids) {
     progress?.(`Packing ${++i}/${ids.length}…`);

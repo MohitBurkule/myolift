@@ -37,7 +37,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/workout.test.ts && tsx tests/placement.test.ts && tsx tests/photo.test.ts && tsx tests/realdata.test.ts && tsx tests/model.test.ts",
+    "test": "tsx tests/workout.test.ts && tsx tests/placement.test.ts && tsx tests/photo.test.ts && tsx tests/realdata.test.ts && tsx tests/model.test.ts && tsx tests/setmodel.test.ts",
     "lint": "expo lint"
   },
   "private": true

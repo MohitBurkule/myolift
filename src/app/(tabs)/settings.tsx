@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Native from "../../../modules/myoblue-native";
 import { Body, Button, Card, Choice, Label, Title, Toggle } from "../../components/ui";
@@ -67,6 +67,12 @@ export default function SettingsScreen() {
             <Button title="Forget" small onPress={() => removeSensor(k.id)} />
           </View>
         )) : <Body muted>No saved sensors.</Body>}
+      </Card>
+
+      <Label>Body measurements</Label>
+      <Card style={card}>
+        <Body muted style={{ fontSize: 13 }}>Arm circumference and a fixed-weight rep test every 2 weeks: the real check of growth.</Body>
+        <Button small title="Open measurements" onPress={() => router.push("/measurements")} />
       </Card>
 
       <Label>Rep counting</Label>

@@ -16,7 +16,9 @@ import { buildLog, buildLogFull, stateAt, type Ignored, type LoggedSet, type Pla
 import { shortName } from "./exercises";
 import { registerLiveChannels, registerWorkoutsDir, resolverFor } from "./reps";
 import { envelopeBins, filteredWindow, fitClock } from "../core/offline";
-import { ACT_DT, DEFAULT_DETECT, detectSets, formFlags, medianFrequency, movingAverage, type Activation, type Channel, type DetectedSet, type Reference } from "../core/workout";
+import { ACT_DT, averageActivation, DEFAULT_DETECT, detectSets, formFlags, medianFrequency, movingAverage, type Activation, type Channel, type DetectedSet, type Reference } from "../core/workout";
+import { holdFeatures } from "../core/musclemodel";
+import { effectiveRir, hardWeight, modelWorkout, type ModelJob, type SetModel } from "../core/setmodel";
 import { BIN_ORIGIN, getSensor } from "./sensors";
 import { getSettings, updateSettings } from "./settings";
 
@@ -333,10 +335,11 @@ export function loadWorkout(id: string): WorkoutSummary | null {
   const meta = readJson<WorkoutMeta | null>(new File(dir, "workout.json"), null);
   if (!meta) return null;
   const events = readEvents(dir);
-  const analysis: { live?: boolean; sets: DetectedSet[] } = readJson(new File(dir, "analysis.json"), { sets: [] });
+  const analysis: { live?: boolean; sets: DetectedSet[]; model?: Record<string, SetModel> } = readJson(new File(dir, "analysis.json"), { sets: [] });
   const sensors: { file: string }[] = readJson(new File(dir, "sensors.json"), []);
   const bytes = sensors.reduce((n, s) => { const f = new File(dir, s.file); return n + (f.exists ? f.size : 0); }, 0);
-  return { meta, events, sets: buildLog(analysis.sets, events, meta.unit), analysed: !analysis.live, bytes };
+  const sets = buildLog(analysis.sets, events, meta.unit).map((s) => (analysis.model?.[s.id] ? { ...s, model: analysis.model[s.id] } : s));
+  return { meta, events, sets, analysed: !analysis.live, bytes };
 }
 
 /**
@@ -367,6 +370,8 @@ export async function analyseWorkout(id: string): Promise<void> {
   const placements = events.filter((e) => e.type === "placement");
   const bounds = placements.map((p) => p.t);
   const all: DetectedSet[] = [];
+  // per set: the activation the muscle model runs on (arms combined) and features of the holds
+  const modelIn = new Map<number, Omit<ModelJob, "set">>();
   for (let i = 0; i < placements.length; i++) {
     const p = placements[i] as Extract<WorkoutEvent, { type: "placement" }>;
     const from = bounds[i], to = bounds[i + 1] ?? Infinity;
@@ -381,9 +386,22 @@ export async function analyseWorkout(id: string): Promise<void> {
     }
     const sets = detectSets(channels, { ...DEFAULT_DETECT, restGapS: getSettings().restGapS, repParams: resolverFor(events) });
     for (const set of sets) {
+      const main = [...set.sides].sort((x, y) => y.reps.length - x.reps.length)[0];
+      const holdIn: Omit<ModelJob, "set">["holds"] = [];
       for (const side of set.sides) {
         const f = files.get(side.key)!;
         const win = filteredWindow(f.bytes, f.fit, FILTERS, set.start, set.end);
+        if (side === main) {
+          const ch = channels.find((c) => c.key === side.key);
+          for (const h of side.holds) {
+            try {
+              if (!ch) { holdIn.push(null); continue; }
+              const k0 = Math.max(0, Math.floor((h.start - ch.act.t0) / ACT_DT)), k1 = Math.min(ch.act.v.length, Math.ceil((h.end - ch.act.t0) / ACT_DT));
+              const raw = win.v.subarray(lower(win.t, h.start), lower(win.t, h.end));
+              holdIn.push({ start: h.start, end: h.end, features: holdFeatures(ch.act.v.subarray(k0, k1), raw, win.fs) });
+            } catch { holdIn.push(null); }
+          }
+        }
         for (const r of side.reps) {
           const a = lower(win.t, r.start), b = lower(win.t, r.end);
           r.mdf = medianFrequency(win.v.subarray(a, b), win.fs);
@@ -394,10 +412,20 @@ export async function analyseWorkout(id: string): Promise<void> {
       }
       set.flags = formFlags(set.sides);
       all.push(set);
+      const acts = channels.filter((c) => set.sides.some((s) => s.key === c.key)).map((c) => c.act);
+      if (acts.length) modelIn.set(set.start, { act: acts.length >= 2 ? averageActivation(acts[0], acts[1]) : acts[0], holds: holdIn });
     }
     await new Promise((r) => setTimeout(r, 0));
   }
-  writeJson(new File(dir, "analysis.json"), { live: false, sets: all, computedAt: new Date().toISOString() });
+  // muscle model: strength left, reps left, time at stretch / lockout, hold types (never fails the analysis)
+  let model: Record<string, SetModel> = {};
+  try {
+    const meta = readJson<WorkoutMeta | null>(new File(dir, "workout.json"), null);
+    const jobs: ModelJob[] = buildLog(all, events, meta?.unit ?? "kg").flatMap((s) => { const m = modelIn.get(s.start); return m ? [{ set: s, ...m }] : []; });
+    await new Promise((r) => setTimeout(r, 0));
+    model = modelWorkout(jobs);
+  } catch {}
+  writeJson(new File(dir, "analysis.json"), { live: false, sets: all, model, computedAt: new Date().toISOString() });
 }
 
 function binsToActivation(bins: Float32Array, ref: Reference, from: number, to: number): Activation {
@@ -455,13 +483,15 @@ export function exportSetsCsv(w: WorkoutSummary): File {
   const f = new File(dir, `myolift_${w.meta.id.slice(0, 10)}_sets.csv`);
   if (f.exists) f.delete();
   f.create();
-  const rows = ["set,start_s,end_s,exercise,grip,weight,unit,reps,group,side,muscle,side_reps,mean_peak_pct,effort_pct_s,active_s,holds,hold_s,mdf_start_hz,mdf_end_hz,flags"];
+  const rows = ["set,start_s,end_s,exercise,grip,weight,unit,reps,group,side,muscle,side_reps,mean_peak_pct,effort_pct_s,active_s,holds,hold_s,mdf_start_hz,mdf_end_hz,flags,rir_you,rir_model,hard_set_weight,strength_left,tut_stretch_s,tut_lockout_s"];
   w.sets.forEach((s, i) => {
     for (const side of s.sides) {
       const holdS = side.holds.reduce((t, h) => t + (h.end - h.start) / 1000, 0);
       rows.push([i + 1, (s.start / 1000).toFixed(1), (s.end / 1000).toFixed(1), q(s.exerciseName), q(s.grip), s.weight ?? "", s.unit, s.reps, s.group ?? "",
         side.side, side.muscle, side.reps.length, side.peak.toFixed(1), side.effort.toFixed(0), side.activeS.toFixed(1), side.holds.length, holdS.toFixed(1),
-        side.mdfStart?.toFixed(0) ?? "", side.mdfEnd?.toFixed(0) ?? "", q(s.flags.map((x) => x.text).join("; "))].join(","));
+        side.mdfStart?.toFixed(0) ?? "", side.mdfEnd?.toFixed(0) ?? "", q(s.flags.map((x) => x.text).join("; ")),
+        s.rir ?? "", s.model?.rirModel ?? "", (() => { const r = effectiveRir(s).rir; return r === null ? "" : hardWeight(r); })(),
+        s.model ? s.model.strengthLeft.toFixed(3) : "", s.model?.tutStretchS ?? "", s.model?.tutLockoutS ?? ""].join(","));
     }
   });
   f.write(rows.join("\n") + "\n");

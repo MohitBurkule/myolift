@@ -6,6 +6,8 @@ import { totals } from "../../core/log";
 import { Body, Button, Card, Pill, Title } from "../../components/ui";
 import { shortName } from "../../lib/exercises";
 import { exportAll } from "../../lib/exportzip";
+import { HardSetsCard, musclesOf } from "../../components/HardSets";
+import { hardSetsByMuscle } from "../../core/setmodel";
 import { clock, useTheme } from "../../lib/theme";
 import { groupSessions, listWorkouts, useWorkout, type WorkoutSummary } from "../../lib/workout";
 
@@ -31,6 +33,7 @@ export default function HistoryScreen() {
               try { await exportAll((m) => setBusy(m)); } finally { setBusy(null); }
             }} />
           </View>
+          <HardSetsCard />
           <Body muted style={{ fontSize: 12 }}>Workouts started within 20 minutes of each other are shown as one session.</Body>
         </View>
       }
@@ -38,6 +41,7 @@ export default function HistoryScreen() {
       renderItem={({ item: g }) => {
         const sets = g.flatMap((w) => w.sets);
         const tot = totals(sets);
+        const hard = hardSetsByMuscle(sets, musclesOf).reduce((n, h) => n + h.hard, 0);
         const names = [...new Set(sets.map((s) => shortName({ id: s.exerciseId, name: s.exerciseName })))];
         const first = g[0], last = g[g.length - 1];
         const start = new Date(first.meta.startedAt), end = last.meta.endedAt ? new Date(last.meta.endedAt) : null;
@@ -50,7 +54,7 @@ export default function HistoryScreen() {
                 {inProgress ? <Pill text="In progress" tone="warn" /> : !end ? <Pill text="Interrupted" tone="warn" /> : null}
               </View>
               <Text style={{ color: t.muted, fontSize: 13, fontVariant: ["tabular-nums"] }}>
-                {start.toLocaleDateString()} {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{end ? ` · ${clock((end.getTime() - start.getTime()) / 1000)}` : ""} · {tot.sets} sets · {tot.reps} reps{tot.volume ? ` · ${Math.round(tot.volume)} ${first.meta.unit}` : ""}{tot.emgLoad ? ` · EMG load ${Math.round(tot.emgLoad)}` : ""}
+                {start.toLocaleDateString()} {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{end ? ` · ${clock((end.getTime() - start.getTime()) / 1000)}` : ""} · {tot.sets} sets · {tot.reps} reps{hard ? ` · ${Math.round(hard * 10) / 10} hard sets` : ""}{tot.volume ? ` · ${Math.round(tot.volume)} ${first.meta.unit} lifted` : ""}
               </Text>
               {g.length > 1 ? <Text style={{ color: t.muted, fontSize: 12 }}>{g.length} recordings combined</Text> : null}
             </Card>

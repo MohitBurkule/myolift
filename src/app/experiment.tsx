@@ -6,7 +6,7 @@ import { useKeepAwake } from "expo-keep-awake";
 import Native from "../../modules/myoblue-native";
 import { Body, Button, Card, Label, Title, Toggle } from "../components/ui";
 import {
-  activeExperiment, deleteExperiment, exportExperiments, FEEL, loadExperiment, markExperiment, nowS, PRESETS, startExperiment, stopExperiment,
+  activeExperiment, deleteExperiment, PROTOCOL, PROTOCOL_PRESET, exportExperiments, FEEL, loadExperiment, markExperiment, nowS, PRESETS, startExperiment, stopExperiment,
   updateExperiment, useExperimentsVersion, videoFile, videoSaved, videoStarted, type ExperimentMeta,
 } from "../lib/experiments";
 import { useSensors } from "../lib/sensors";
@@ -42,6 +42,8 @@ function NewExperiment() {
   const [running, setRunning] = useState<ExperimentMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [weight, setWeight] = useState(s.weight !== null && s.weight !== undefined ? String(s.weight) : "");
+  const [step, setStep] = useState<{ i: number; phase: "go" | "rest"; until: number } | null>(null);
   const [, tick] = useState(0);
   const videoDone = useRef<Promise<void> | null>(null);
   const live = useRef(false);
@@ -54,10 +56,28 @@ function NewExperiment() {
   // leaving the screen stops the recording (the camera goes away with it)
   useEffect(() => () => { if (live.current) { live.current = false; cam.current?.stopRecording(); stopExperiment(); } }, []);
 
-  async function start() {
+  const kg = () => { const v = parseFloat(weight.replace(",", ".")); return Number.isFinite(v) ? v : null; };
+
+  /** Guided protocol: step through PROTOCOL with countdowns, marking each start/end automatically. */
+  async function runProtocol() {
+    const wait = async (ms: number) => { const end = Date.now() + ms; while (live.current && Date.now() < end) await new Promise((r) => setTimeout(r, 100)); return live.current; };
+    if (!(await wait(SYNC_S * 1000 + 2000))) return;
+    for (let i = 0; i < PROTOCOL.length; i++) {
+      const p = PROTOCOL[i];
+      markExperiment(`${p.preset} start`);
+      setStep({ i, phase: "go", until: Date.now() + p.seconds * 1000 });
+      if (!(await wait(p.seconds * 1000))) return;
+      markExperiment(`${p.preset} end`);
+      if (p.rest) { setStep({ i, phase: "rest", until: Date.now() + p.rest * 1000 }); if (!(await wait(p.rest * 1000))) return; }
+    }
+    setStep(null);
+    finish();
+  }
+
+  async function start(guided = false) {
     setError(null);
     if (!sensors.length) { setError("Connect the sensors first (Sensors)."); return; }
-    const r = startExperiment(preset, notes, feel);
+    const r = startExperiment(guided ? PROTOCOL_PRESET : preset, notes, feel, kg());
     if (typeof r === "string") { setError(r); return; }
     live.current = true;
     setRunning(r);
@@ -67,6 +87,7 @@ function NewExperiment() {
       const p = cam.current.recordAsync();
       videoDone.current = p.then((v) => { if (v?.uri) videoSaved(r.id, v.uri, Native?.now() ?? 0); }).catch((e) => setError(`Video: ${e?.message ?? e}`));
     }
+    if (guided) runProtocol();
   }
 
   async function finish() {
@@ -75,6 +96,7 @@ function NewExperiment() {
     const m = stopExperiment() ?? running;
     if (videoDone.current) { await videoDone.current; videoDone.current = null; }
     setRunning(null);
+    setStep(null);
     if (m) router.replace({ pathname: "/experiment", params: { id: m.id } });
   }
 
@@ -117,8 +139,26 @@ function NewExperiment() {
         )) : <Body muted>No sensors connected.</Body>}
       </Card>
 
+      {running && step ? (() => {
+        const p = PROTOCOL[step.i], pr = PRESETS.find((x) => x.id === p.preset)!, left = Math.max(0, Math.ceil((step.until - Date.now()) / 1000));
+        const next = PRESETS.find((x) => x.id === PROTOCOL[step.i + 1]?.preset);
+        return (
+          <Card style={{ padding: 14, gap: 6, borderColor: step.phase === "go" ? t.accent : t.line }}>
+            <Text style={{ color: t.muted }}>Step {step.i + 1} of {PROTOCOL.length}{step.phase === "rest" ? " · rest" : ""}</Text>
+            <Text style={{ color: t.ink, fontSize: 22, fontWeight: "800" }}>{step.phase === "go" ? pr.title : next ? `Rest. Next: ${next.title}` : "Rest"}</Text>
+            <Text style={{ color: t.ink }}>{step.phase === "go" ? pr.text : next?.text ?? ""}</Text>
+            <Text style={{ color: t.ink, fontSize: 44, fontWeight: "800", fontVariant: ["tabular-nums"] }}>{left}</Text>
+          </Card>
+        );
+      })() : null}
       {running ? (
         <>
+          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+            <Text style={{ color: t.ink }}>Weight</Text>
+            <TextInput value={weight} onChangeText={setWeight} keyboardType="decimal-pad" onEndEditing={() => markExperiment(`weight ${weight} ${s.unit}`)}
+              style={{ width: 90, borderWidth: 1, borderColor: t.line, borderRadius: 10, paddingHorizontal: 10, color: t.ink, backgroundColor: t.panel }} />
+            <Text style={{ color: t.muted }}>{s.unit} (changing it adds a mark)</Text>
+          </View>
           <Label>Mark what you're doing now</Label>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {QUICK_MARKS.map((m) => <Button key={m} small title={m} onPress={() => markExperiment(m)} />)}
@@ -144,9 +184,18 @@ function NewExperiment() {
           </View>
           <TextInput value={notes} onChangeText={setNotes} multiline placeholder="Notes: weight, angle, what you're testing…" placeholderTextColor={t.muted}
             style={{ minHeight: 80, borderWidth: 1, borderColor: t.line, borderRadius: 10, padding: 10, color: t.ink, backgroundColor: t.panel, textAlignVertical: "top" }} />
+          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+            <Text style={{ color: t.ink }}>Weight</Text>
+            <TextInput value={weight} onChangeText={setWeight} keyboardType="decimal-pad" placeholder="none"
+              placeholderTextColor={t.muted} style={{ width: 90, borderWidth: 1, borderColor: t.line, borderRadius: 10, paddingHorizontal: 10, color: t.ink, backgroundColor: t.panel }} />
+            <Text style={{ color: t.muted }}>{s.unit}</Text>
+          </View>
           <Toggle label="Record video" hint="Saved with the EMG on the same clock (no sound)." value={useCam} onChange={setUseCam} />
           {error ? <Text style={{ color: t.warn }}>{error}</Text> : null}
-          <Button title="Start" variant="record" disabled={useCam && perm?.granted === true && !ready} onPress={start} />
+          <Button title="Start" variant="record" disabled={useCam && perm?.granted === true && !ready} onPress={() => start(false)} />
+          <Button title={`Run the guided protocol (${PROTOCOL.length} tests, ~${Math.round(PROTOCOL.reduce((n, p) => n + p.seconds + p.rest, 0) / 60)} min)`} variant="primary"
+            disabled={useCam && perm?.granted === true && !ready} onPress={() => start(true)} />
+          <Body muted style={{ fontSize: 12 }}>The protocol records everything in one go and marks each step automatically; it tells you what to do next and counts down.</Body>
           <Body muted style={{ fontSize: 12 }}>It starts with a 3-second sync flex: tense hard once so the video and EMG can be lined up exactly.</Body>
         </>
       )}
@@ -168,7 +217,7 @@ function Saved({ id }: { id: string }) {
     <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>
       <Stack.Screen options={{ title: m.title }} />
       <Title>{m.title}</Title>
-      <Text style={{ color: t.muted }}>{new Date(m.startedAt).toLocaleString()} · {clock(m.durationS ?? 0)} · feels {m.feel}</Text>
+      <Text style={{ color: t.muted }}>{new Date(m.startedAt).toLocaleString()} · {clock(m.durationS ?? 0)} · feels {m.feel}{m.weight !== null ? ` · ${m.weight} ${m.unit}` : ""}</Text>
       <Card style={{ padding: 12, gap: 4 }}>
         <Text style={{ color: t.ink }}>{c.minutesSinceLastWorkout !== null ? `${fmtMin(c.minutesSinceLastWorkout)} after the last workout (${c.lastWorkoutName})` : "No earlier workout"}</Text>
         <Text style={{ color: t.ink }}>{c.minutesSincePrevExperiment !== null ? `${fmtMin(c.minutesSincePrevExperiment)} after the previous experiment · #${c.experimentsToday + 1} today` : "First experiment"}</Text>

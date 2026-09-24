@@ -3,6 +3,8 @@ import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { calibrationHeadroom, totals, type LoggedSet } from "../../core/log";
+import { hardSetsByMuscle } from "../../core/setmodel";
+import { musclesOf } from "../../components/HardSets";
 import { SetCard } from "../../components/SetCard";
 import { Body, Button, Card, Label, Title } from "../../components/ui";
 import { shortName } from "../../lib/exercises";
@@ -27,6 +29,9 @@ export default function WorkoutDetail() {
   const start = new Date(first.meta.startedAt), end = last.meta.endedAt ? new Date(last.meta.endedAt) : null;
   const all = ws.flatMap((w) => w.sets.map((set) => ({ set, wid: w.meta.id })));
   const tot = totals(all.map((x) => x.set));
+  const hard = hardSetsByMuscle(all.map((x) => x.set), musclesOf);
+  const hardTotal = Math.round(hard.reduce((n, h) => n + h.hard, 0) * 10) / 10;
+  const unrated = hard.reduce((n, h) => n + h.unrated, 0);
   const groups: { key: string; name: string; sets: { set: LoggedSet; wid: string; index: number }[] }[] = [];
   all.forEach(({ set, wid }, i) => {
     const key = set.exerciseId + "|" + set.grip;
@@ -52,16 +57,16 @@ export default function WorkoutDetail() {
         {stat("Sets", String(tot.sets))}
         {stat("Reps", String(tot.reps))}
         {stat("Weight × reps", tot.volume ? `${Math.round(tot.volume)} ${first.meta.unit}` : "–")}
-        {stat("EMG load", tot.emgLoad ? String(Math.round(tot.emgLoad)) : "–")}
+        {stat("Hard sets", hardTotal || unrated ? `${hardTotal}${unrated ? ` (+${unrated}?)` : ""}` : "–")}
         {stat("Under tension", clock(tot.tutS))}
         {stat("Holds", `${tot.holdS.toFixed(0)} s`)}
       </Card>
-      <Button small title={info ? "Hide: what is EMG load?" : "What is EMG load?"} onPress={() => setInfo(!info)} />
+      <Button small title={info ? "Hide: what counts as a hard set?" : "What counts as a hard set?"} onPress={() => setInfo(!info)} />
       {info ? (
         <Card style={{ padding: 12, gap: 6 }}>
-          <Body style={{ fontSize: 13 }}>EMG load = weight × the area under the activation curve (% of your calibrated max × seconds), summed over both arms.</Body>
-          <Body style={{ fontSize: 13 }}>Weight × reps treats a 1-second bounce and a slow rep with a hold the same. The area under the curve measures how long and how hard the muscle actually worked (integrated EMG), so slow reps, holds and time under tension count, and reps where this muscle barely worked count little.</Body>
-          <Body muted style={{ fontSize: 12 }}>Caveats: EMG amplitude also rises with fatigue at the same load, and the area only means something relative to today's calibration. Compare it between sessions for the same exercise and sensor spot, and read it alongside the weight. It isn't a validated hypertrophy measure.</Body>
+          <Body style={{ fontSize: 13 }}>A hard set ends within about 4 reps of failure. Hard sets per muscle per week are the best-supported measure of growth stimulus (roughly 10–20 a week). Sets 0–1 reps from failure count 1, 2–3 count 0.8, about 4 count 0.5, easier sets 0.</Body>
+          <Body style={{ fontSize: 13 }}>Reps left comes from your rating after each set; without one, the muscle model estimates it (the number in brackets is unrated sets). Rate a few sets to make the model's estimate yours.</Body>
+          <Body muted style={{ fontSize: 12 }}>Weight × reps and the EMG effort curve are still shown per set, but neither is a measure of growth: EMG rises with fatigue and is lower when lowering the weight, even though that part loads the muscle.</Body>
         </Card>
       ) : null}
       {(() => {

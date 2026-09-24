@@ -26,6 +26,22 @@ export const PRESETS: Preset[] = [
   { id: "reps_partial_bottom", title: "Partials: top half", text: "From the stretch, go only halfway down and back up." },
   { id: "free", title: "Free", text: "Anything else. Describe it in the notes." },
 ];
+/** The guided sequence: each step 30 s with a countdown, rests between, all in one recording with automatic marks. */
+export const PROTOCOL: { preset: string; seconds: number; rest: number }[] = [
+  { preset: "hold_lockout_relaxed", seconds: 20, rest: 20 },
+  { preset: "push_lockout", seconds: 15, rest: 30 },
+  { preset: "hold_mid", seconds: 20, rest: 30 },
+  { preset: "push_mid", seconds: 15, rest: 30 },
+  { preset: "hold_stretch", seconds: 20, rest: 30 },
+  { preset: "stretch_passive", seconds: 20, rest: 15 },
+  { preset: "flex_no_load", seconds: 15, rest: 30 },
+  { preset: "reps_normal", seconds: 30, rest: 45 },
+  { preset: "reps_slow_ecc", seconds: 40, rest: 45 },
+  { preset: "reps_partial_top", seconds: 30, rest: 45 },
+  { preset: "reps_partial_bottom", seconds: 30, rest: 0 },
+];
+export const PROTOCOL_PRESET: Preset = { id: "protocol", title: "Guided protocol", text: "All the tests in one recording, with countdowns and rests." };
+
 export const FEEL = ["fresh", "warmed up", "pumped", "fatigued", "sore"] as const;
 
 export interface Mark { t: number; label: string } // s since the experiment started
@@ -107,7 +123,7 @@ function context(now: Date): ExperimentMeta["context"] {
 }
 
 /** Start EMG recording (all connected sensors). The video, if any, is started right after by the screen. */
-export function startExperiment(preset: Preset, notes: string, feel: string): ExperimentMeta | string {
+export function startExperiment(preset: Preset, notes: string, feel: string, weight: number | null = getSettings().weight ?? null): ExperimentMeta | string {
   if (!Native) return "Recording needs the Android app.";
   if (activeWorkoutId()) return "A workout is recording. End it first (both use the same recorder).";
   if (active) return "An experiment is already recording.";
@@ -118,7 +134,7 @@ export function startExperiment(preset: Preset, notes: string, feel: string): Ex
   const s = getSettings();
   const meta: ExperimentMeta = {
     id, preset: preset.id, title: preset.title, notes, feel, marks: [], startedAt: started.toISOString(), originNative: 0,
-    context: context(started), exercise: s.exercise ?? null, weight: s.weight ?? null, unit: s.unit,
+    context: context(started), exercise: s.exercise ?? null, weight, unit: s.unit,
     placements: s.placements, calibrations: s.refs, app: APP_VERSION,
   };
   if (!Native.startRecording(dir.uri, `Experiment: ${preset.title}`)) return "Couldn't start the recorder.";
@@ -199,6 +215,7 @@ export async function exportExperiments(ids: string[], progress?: (m: string) =>
   const z = new ZipWriter((c) => out.write(c, { append: true }));
   z.add("README.txt", new TextEncoder().encode(README));
   z.add("settings.json", new TextEncoder().encode(JSON.stringify({ ...getSettings(), placementPhotos: undefined, app: APP_VERSION }, null, 2)));
+  z.add("measurements.json", require("./measurements").measurementsJson());
   let i = 0;
   for (const id of ids) {
     progress?.(`Packing ${++i}/${ids.length}…`);

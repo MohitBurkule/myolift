@@ -1,6 +1,7 @@
 import React from "react";
 import { Pressable, Text, View } from "react-native";
-import { emgLoad, type LoggedSet } from "../core/log";
+import type { LoggedSet } from "../core/log";
+import { effectiveRir, isHard, rirLabel } from "../core/setmodel";
 import { findExercise, shortName, worksMuscle } from "../lib/exercises";
 import { useTheme } from "../lib/theme";
 import { Card, Pill } from "./ui";
@@ -20,7 +21,14 @@ export function SetCard({ set, index, onPress }: { set: LoggedSet; index: number
   const breakdown = partial ? [`${set.ranges.full} full`, set.ranges.top && `${set.ranges.top} top half`, set.ranges.bottom && `${set.ranges.bottom} bottom half`, set.ranges.mid && `${set.ranges.mid} middle`].filter(Boolean).join(" · ") : "";
   const ex = findExercise(set.exerciseId);
   const off = set.sides.length > 0 && set.sides.every((x) => worksMuscle(ex, x.muscle) === "no");
-  const load = emgLoad(set);
+  const { rir, source } = effectiveRir(set);
+  const hard = isHard(rir);
+  const m = set.model;
+  const modelLine = [
+    rir !== null ? `${rirLabel(rir)} reps left${source === "model" ? " (model)" : ""}` : null,
+    m ? `strength left ${Math.round(m.strengthLeft * 100)}%` : null,
+    m && m.tutStretchS + m.tutLockoutS > 0 ? `${m.tutStretchS.toFixed(0)} s at stretch · ${m.tutLockoutS.toFixed(0)} s at lockout` : null,
+  ].filter(Boolean).join(" · ");
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`Set ${index}`}>
       <Card style={{ padding: 12, gap: 6 }}>
@@ -28,6 +36,7 @@ export function SetCard({ set, index, onPress }: { set: LoggedSet; index: number
           <Text style={{ color: t.muted, fontWeight: "700", width: 26, fontVariant: ["tabular-nums"] }}>#{index}</Text>
           <Text style={{ color: t.ink, fontWeight: "700", flex: 1 }} numberOfLines={1}>{shortName({ id: set.exerciseId, name: set.exerciseName })}{set.grip ? ` · ${set.grip}` : ""}</Text>
           {set.group ? <Pill text={GROUP_LABEL[set.group]} tone="accent" /> : null}
+          {hard ? <Pill text="hard set" tone="ok" /> : null}
           {set.edited ? <Pill text="edited" /> : null}
         </View>
         <Text style={{ color: t.ink, fontSize: 17, fontWeight: "700", fontVariant: ["tabular-nums"] }}>
@@ -36,8 +45,9 @@ export function SetCard({ set, index, onPress }: { set: LoggedSet; index: number
         </Text>
         {breakdown ? <Text style={{ color: t.ink, fontSize: 13 }}>{breakdown} <Text style={{ color: t.muted }}>(estimated range)</Text></Text> : null}
         <Text style={{ color: t.muted, fontSize: 13, fontVariant: ["tabular-nums"] }}>
-          {peak.toFixed(0)}% activation · {tut.toFixed(0)} s TUT{holds ? ` · ${holds} hold${holds > 1 ? "s" : ""}` : ""}{load ? ` · EMG load ${Math.round(load)}` : ""}
+          {peak.toFixed(0)}% activation · {tut.toFixed(0)} s TUT{holds ? ` · ${holds} hold${holds > 1 ? "s" : ""}` : ""}
         </Text>
+        {modelLine ? <Text style={{ color: t.muted, fontSize: 13, fontVariant: ["tabular-nums"] }}>{modelLine}</Text> : null}
         {off ? <Pill text={`sensors are on ${set.sides[0].muscle}, not the main muscle here: check the rep count`} tone="warn" /> : null}
         {set.flags.length ? (
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>

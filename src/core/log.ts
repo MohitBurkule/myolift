@@ -6,6 +6,7 @@
  */
 import type { DetectedSet, Reference, Rep, SideResult } from "./workout";
 import type { Fingerprint } from "./placement";
+import type { SetModel } from "./setmodel";
 
 export type Side = "left" | "right";
 export type Unit = "kg" | "lb";
@@ -38,6 +39,8 @@ export interface SetPatch {
   exerciseId?: string;
   exerciseName?: string;
   grip?: string;
+  /** reps left the user reported (0, 1.5 for "1–2", 3.5 for "3–4", 6 for "5+"); null clears it */
+  rir?: number | null;
 }
 
 export interface LoggedSet {
@@ -66,6 +69,10 @@ export interface LoggedSet {
   edited: boolean;
   /** sub-segments when the weight changed mid-set */
   segments?: { weight: number; reps: number; start: number; end: number }[];
+  /** reps left the user reported after the set (see SetPatch.rir) */
+  rir?: number | null;
+  /** muscle model results (after the full analysis) */
+  model?: SetModel;
 }
 
 const DROP_GAP_MS = 15000;
@@ -130,12 +137,14 @@ export function buildLogFull(detected: DetectedSet[], events: WorkoutEvent[], de
     for (const e of edits) {
       if (Math.abs(e.setStart - d.start) > EDIT_MATCH_MS) continue;
       const p = e.patch;
-      set.edited = true;
+      // a reps-left rating alone isn't a correction of the detection
+      if (Object.keys(p).some((k) => k !== "rir")) set.edited = true;
       if (p.deleted !== undefined) (set as any).deleted = p.deleted;
       if (p.reps !== undefined) set.reps = p.reps;
       if (p.weight !== undefined) set.weight = p.weight;
       if (p.exerciseId) { set.exerciseId = p.exerciseId; set.exerciseName = p.exerciseName ?? set.exerciseName; }
       if (p.grip !== undefined) set.grip = p.grip;
+      if (p.rir !== undefined) set.rir = p.rir;
     }
     if (!(set as any).deleted) out.push(set);
   }

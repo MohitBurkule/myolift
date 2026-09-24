@@ -11,6 +11,8 @@ import { clock, useTheme } from "../lib/theme";
 import { activeWorkoutId, analyseWorkout, editSet, envelopeOf, liveLog, loadWorkout, redetectLive } from "../lib/workout";
 import { defaultMode, learnFromCorrection, paramsFor, setMode } from "../lib/reps";
 import { useSettings } from "../lib/settings";
+import { RirPicker } from "../components/RirPicker";
+import { effectiveRir, hardWeight, isHard, rirLabel } from "../core/setmodel";
 
 /** One set: activation per arm with reps and holds marked, rep-by-rep numbers, and corrections. */
 export default function SetScreen() {
@@ -21,6 +23,7 @@ export default function SetScreen() {
   const [confirm, setConfirm] = useState(false);
   const [draft, setDraft] = useState<number | null>(null);
   const [learning, setLearning] = useState<string | null>(null);
+  const [refit, setRefit] = useState<string | null>(null);
   const settings = useSettings();
   const reload = () => {
     const sets = wid ? loadWorkout(wid)?.sets ?? [] : liveLog();
@@ -93,7 +96,7 @@ export default function SetScreen() {
           <Card key={side.key} style={{ padding: 12, gap: 8 }}>
             <Text style={{ color: t.ink, fontWeight: "700" }}>{side.side} {side.muscle} · {side.reps.length} reps · {side.peak.toFixed(0)}% avg peak</Text>
             {plot}
-            <Text style={{ color: t.muted, fontSize: 12 }}>Numbers mark each detected rep; green bands are holds.</Text>
+            <Text style={{ color: t.muted, fontSize: 12 }}>Effort curve: activation as % of your calibrated max. It shows effort and fatigue, not load (it's lower while lowering the weight). Numbers mark each detected rep; green bands are holds.</Text>
             <View style={{ gap: 2 }}>
               <Text style={{ color: t.muted, fontSize: 12, fontVariant: ["tabular-nums"] }}>rep   peak   up (s)  down (s)  freq     range</Text>
               {side.reps.map((r, i) => (
@@ -107,6 +110,24 @@ export default function SetScreen() {
         );
       })}
       <Body muted style={{ fontSize: 12 }}>Range is estimated from activation (a full rep peaks high and relaxes low; top-half partials never relax, bottom-half partials never peak), not from the joint angle. "Up" is onset to peak activation (mostly the lifting part), "down" is peak to relaxed (mostly lowering). Frequency is the median frequency of the EMG; it drops as the muscle fatigues.</Body>
+
+      <Label>How hard was it?</Label>
+      <Card style={{ padding: 12, gap: 10 }}>
+        <Text style={{ color: t.ink }}>How many more reps could you have done?</Text>
+        <RirPicker value={set.rir} onPick={async (v) => {
+          editSet(set.start, { rir: v }, wid);
+          reload();
+          if (!isLive && wid) {
+            // the rating is also a fitting target for the muscle model
+            setRefit("Updating the model with your rating…");
+            await new Promise((r) => setTimeout(r, 30));
+            try { await analyseWorkout(wid); setRefit(null); } catch (e: any) { setRefit(`Saved; the model update failed: ${e?.message ?? e}`); }
+            reload();
+          }
+        }} />
+        {refit ? <Text style={{ color: t.muted, fontSize: 13 }}>{refit}</Text> : null}
+        <ModelDetail set={set} />
+      </Card>
 
       <Label>Fix this set</Label>
       <Card style={{ padding: 12, gap: 10 }}>
@@ -139,5 +160,40 @@ export default function SetScreen() {
         }} />
       </Card>
     </ScrollView>
+  );
+}
+
+/** Muscle model results: strength left, reps left, hard set, time at stretch / lockout, hold types. */
+function ModelDetail({ set }: { set: LoggedSet }) {
+  const t = useTheme();
+  const { rir, source } = effectiveRir(set);
+  const m = set.model;
+  const row = (k: string, v: string) => (
+    <View key={k} style={{ flexDirection: "row", gap: 8 }}>
+      <Text style={{ color: t.muted, flex: 1 }}>{k}</Text>
+      <Text style={{ color: t.ink, fontWeight: "600", fontVariant: ["tabular-nums"] }}>{v}</Text>
+    </View>
+  );
+  const rows = [
+    row("Reps left", rir === null ? "–" : `${rirLabel(rir)}${source === "model" ? ` (model: ${rir.toFixed(1)})` : " (you)"}`),
+    row("Hard set", rir === null ? "unrated" : isHard(rir) ? `yes (counts ${hardWeight(rir)})` : "no"),
+  ];
+  if (m) {
+    rows.push(row("Strength left at the end", `${Math.round(m.strengthLeft * 100)}%`));
+    if (source !== "model" && m.rirModel !== null) rows.push(row("Model's reps-left estimate", `${m.rirModel.toFixed(1)}${m.rirCalibrated ? "" : " (uncalibrated: rate a set of this exercise)"}`));
+    rows.push(row("Under load, triceps stretched", `${m.tutStretchS.toFixed(1)} s`));
+    rows.push(row("Under load, near lockout", `${m.tutLockoutS.toFixed(1)} s`));
+    rows.push(row("Under load, in between", `${m.tutMidS.toFixed(1)} s`));
+    const holds = m.holds.map((h) => `${((h.end - h.start) / 1000).toFixed(1)} s ${h.cls === "active" ? "pushing" : h.cls === "passive" ? "passive hold" : "moving"} at ${h.where}`);
+    if (holds.length) rows.push(row("Holds", ""), <Text key="holds" style={{ color: t.ink, fontSize: 13 }}>{holds.join(" · ")}</Text>);
+  }
+  return (
+    <View style={{ gap: 4 }}>
+      {rows}
+      <Text style={{ color: t.muted, fontSize: 12 }}>
+        {m ? `Muscle model (fatigue, Hill-type triceps, elbow mechanics), fitted to this workout${source === "you" ? " and your rating" : ""}. Angles and strength are estimates until camera recordings calibrate it.`
+          : set.weight === null ? "The muscle model needs the weight." : "The muscle model runs after the workout ends, for pushdowns (rope, bar, machine)."}
+      </Text>
+    </View>
   );
 }
