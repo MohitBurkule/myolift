@@ -88,6 +88,11 @@ adb shell input keyevent KEYCODE_BACK; sleep 2
 adb shell input keyevent KEYCODE_BACK; sleep 2
 tap "History"; sleep 3; shot 12-history
 alive
+tap "Lab"; sleep 2; has "Experiments" || fail "Lab tab"
+tap "+ New experiment"; sleep 3; shot 13-experiment
+has "Record video" || fail "experiment screen"
+adb shell input keyevent KEYCODE_BACK; sleep 2
+alive
 
 adb logcat -d > "$OUT/logcat.txt"
 if grep -A6 "FATAL EXCEPTION" "$OUT/logcat.txt" | grep -q "$PKG"; then grep -A20 "FATAL EXCEPTION" "$OUT/logcat.txt" | head -40; fail "app crashed"; fi

@@ -134,6 +134,9 @@ test("zip writer output passes unzip -t", () => {
   z.add("workouts/a/events.jsonl", new TextEncoder().encode('{"t":1}\n'));
   z.add("workouts/a/S1.bin", Uint8Array.from({ length: 5000 }, (_, i) => i & 255));
   z.add("README.txt", new TextEncoder().encode("µV ✓"));
+  const big = Uint8Array.from({ length: 70000 }, (_, i) => (i * 7) & 255);
+  let pos = 0;
+  z.addChunked("experiments/x/video.mp4", () => { if (pos >= big.length) return null; const c = big.subarray(pos, pos + 16384); pos += c.length; return c; });
   z.finish();
   const f = `${tmpdir()}/myolift-test.zip`;
   writeFileSync(f, Buffer.concat(chunks.map((c) => Buffer.from(c))));

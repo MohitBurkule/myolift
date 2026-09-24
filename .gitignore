@@ -46,3 +46,5 @@ yarn-error.*
 node_modules
 tests/photos/
 tests/real/
+__pycache__/
+tools/*.task

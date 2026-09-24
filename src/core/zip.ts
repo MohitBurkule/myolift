@@ -62,6 +62,34 @@ export class ZipWriter {
     this.central.push(c); this.count++;
   }
 
+  /**
+   * A large file read in chunks (e.g. a video): sizes and CRC go in a data descriptor after the
+   * data, so the file is never held in memory. `read` returns the next chunk, or null at the end.
+   */
+  addChunked(name: string, read: () => Uint8Array | null) {
+    const nm = utf8(name), { time, date } = dosTime(this.now);
+    const h = new Uint8Array(30 + nm.length), v = new DataView(h.buffer);
+    v.setUint32(0, 0x04034b50, true); v.setUint16(4, 20, true); v.setUint16(6, 0x0808, true); v.setUint16(8, 0, true);
+    v.setUint16(10, time, true); v.setUint16(12, date, true); v.setUint16(26, nm.length, true);
+    h.set(nm, 30);
+    this.write(h);
+    const start = this.offset;
+    this.offset += h.length;
+    let crc = 0, size = 0;
+    for (let c = read(); c && c.length; c = read()) { crc = crc32Update(crc, c); size += c.length; this.write(c); }
+    const d = new Uint8Array(16), dv = new DataView(d.buffer);
+    dv.setUint32(0, 0x08074b50, true); dv.setUint32(4, crc, true); dv.setUint32(8, size, true); dv.setUint32(12, size, true);
+    this.write(d);
+    this.offset += size + 16;
+    const c = new Uint8Array(46 + nm.length), w = new DataView(c.buffer);
+    w.setUint32(0, 0x02014b50, true); w.setUint16(4, 20, true); w.setUint16(6, 20, true); w.setUint16(8, 0x0808, true);
+    w.setUint16(12, time, true); w.setUint16(14, date, true); w.setUint32(16, crc, true);
+    w.setUint32(20, size, true); w.setUint32(24, size, true); w.setUint16(28, nm.length, true);
+    w.setUint32(42, start, true);
+    c.set(nm, 46);
+    this.central.push(c); this.count++;
+  }
+
   finish() {
     const cdStart = this.offset;
     let size = 0;
@@ -71,4 +99,11 @@ export class ZipWriter {
     v.setUint32(12, size, true); v.setUint32(16, cdStart, true);
     this.write(e);
   }
+}
+
+/** Incremental CRC32: pass the previous value (start with 0). */
+export function crc32Update(prev: number, data: Uint8Array): number {
+  let c = (prev ^ 0xffffffff) >>> 0;
+  for (let i = 0; i < data.length; i++) c = CRC_TABLE[(c ^ data[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
 }
