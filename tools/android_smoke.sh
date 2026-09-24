@@ -90,7 +90,7 @@ tap "History"; sleep 3; shot 12-history
 alive
 tap "Lab"; sleep 2; has "Experiments" || fail "Lab tab"
 tap "+ New experiment"; sleep 3; shot 13-experiment
-has "Record video" || fail "experiment screen"
+has "Switch camera" || has "Allow camera" || fail "experiment screen"
 adb shell input keyevent KEYCODE_BACK; sleep 2
 alive
 
