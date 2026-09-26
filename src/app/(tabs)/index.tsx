@@ -13,11 +13,13 @@ import { defaultMode, setMode } from "../../lib/reps";
 import { addDemoSensor, nativeAvailable, useSensors } from "../../lib/sensors";
 import { updateSettings, useSettings } from "../../lib/settings";
 import { clock, useTheme } from "../../lib/theme";
-import { addEvent, endWorkout, isPaused, liveLogFull, refKey, startWorkout, useWorkout, workoutTime } from "../../lib/workout";
+import { addEvent, endWorkout, isPaused, listWorkouts, liveLogFull, refKey, startWorkout, useWorkout, workoutTime } from "../../lib/workout";
 import { UpdateBanner } from "../../components/UpdateBanner";
 import { HardSetsCard } from "../../components/HardSets";
 import { RirPicker } from "../../components/RirPicker";
 import { editSet } from "../../lib/workout";
+import { dayKey } from "../../lib/insights";
+import { listExperiments } from "../../lib/experiments";
 
 export default function WorkoutScreen() {
   const t = useTheme();
@@ -141,6 +143,7 @@ export default function WorkoutScreen() {
           </Card>
         ) : null}
         {!active ? <HardSetsCard /> : null}
+        {!active ? <TodayInsights /> : null}
         {active && log.length ? <Label>Sets · newest first</Label> : null}
         {active ? [...log].reverse().map((set, i) => (
           <SetCard key={set.id} set={set} index={log.length - i} onPress={() => router.push({ pathname: "/set", params: { sid: set.id } })} />
@@ -276,6 +279,21 @@ function LiveStatus() {
     <Card style={{ padding: 14, flexDirection: "row", alignItems: "center", gap: 10 }}>
       <Text style={{ color: t.muted, fontWeight: "700", flex: 1 }}>{w.restMs === null ? "Waiting for the first set…" : "Resting"}</Text>
       {w.restMs !== null ? <Text style={{ color: t.ink, fontSize: 24, fontWeight: "800", fontVariant: ["tabular-nums"] }}>{clock(w.restMs / 1000)}</Text> : null}
+    </Card>
+  );
+}
+
+/** After a session today: a shortcut to the day's insights. */
+function TodayInsights() {
+  const t = useTheme();
+  const today = dayKey(new Date());
+  const [has] = React.useState(() => listExperiments().some((e) => dayKey(e.startedAt) === today) || listWorkouts().some((w) => dayKey(w.meta.startedAt) === today && !!w.meta.endedAt));
+  if (!has) return null;
+  return (
+    <Card style={{ padding: 12, gap: 6 }}>
+      <Text style={{ color: t.ink, fontWeight: "700" }}>Today's session</Text>
+      <Text style={{ color: t.muted, fontSize: 13 }}>Effort vs movement, fatigue, and whether what you did is backed by research.</Text>
+      <Button small title="Open insights" variant="primary" onPress={() => router.push({ pathname: "/insights", params: { day: today } })} />
     </Card>
   );
 }

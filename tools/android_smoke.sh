@@ -94,6 +94,11 @@ adb shell input keyevent KEYCODE_BACK; sleep 2
 adb shell input keyevent KEYCODE_BACK; sleep 2
 tap "History"; sleep 3; shot 12-history
 alive
+# the demo session's insights: computes from the recording without crashing
+if has "Insights: is it working?"; then
+  tap "Insights: is it working?"; sleep 10; shot 12b-insights; alive
+  adb shell input keyevent KEYCODE_BACK; sleep 2
+fi
 tap "Lab"; sleep 2; has "Experiments" || fail "Lab tab"
 has "Save day to Downloads" || has "No experiments yet." || fail "Lab day export"
 tap "+ New experiment"; sleep 3; shot 13-experiment

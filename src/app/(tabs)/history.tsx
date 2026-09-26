@@ -11,6 +11,7 @@ import { hardSetsByMuscle } from "../../core/setmodel";
 import { clock, useTheme } from "../../lib/theme";
 import { groupSessions, listWorkouts, useWorkout, type WorkoutSummary } from "../../lib/workout";
 import { listExperiments, type ExperimentMeta } from "../../lib/experiments";
+import { dayKey } from "../../lib/insights";
 
 const GAP = 20 * 60_000;
 /** experiments recorded during (or within 20 min of) a session */
@@ -86,6 +87,7 @@ export default function HistoryScreen() {
               </Text>
               {g.length > 1 ? <Text style={{ color: t.muted, fontSize: 12 }}>{g.length} recordings combined</Text> : null}
               {(() => { const n = during(exps, g).length; return n ? <Text style={{ color: t.muted, fontSize: 12 }}>{n} Lab experiment{n > 1 ? "s" : ""} in this session</Text> : null; })()}
+              {end ? <View style={{ flexDirection: "row" }}><Button small title="Insights: is it working?" onPress={() => router.push({ pathname: "/insights", params: { day: dayKey(first.meta.startedAt) } })} /></View> : null}
             </Card>
           </Pressable>
         );

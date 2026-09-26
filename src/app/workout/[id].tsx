@@ -11,6 +11,7 @@ import { shortName } from "../../lib/exercises";
 import { exportWorkouts } from "../../lib/exportzip";
 import { clock, useTheme } from "../../lib/theme";
 import { analyseWorkout, deleteWorkout, exportRepsCsv, exportSetsCsv, loadWorkout, type WorkoutSummary } from "../../lib/workout";
+import { dayKey } from "../../lib/insights";
 
 /** One session: one or more recordings started close together (ids comma-separated). */
 export default function WorkoutDetail() {
@@ -87,6 +88,7 @@ export default function WorkoutDetail() {
       ))}
       {!all.length ? <Body muted>No sets detected. If you trained, check the sensor positions and calibration, then Re-analyse.</Body> : null}
 
+      {ended ? <Button title="Session insights: is it working?" variant="primary" onPress={() => router.push({ pathname: "/insights", params: { day: dayKey(first.meta.startedAt) } })} /> : null}
       <Label>Data</Label>
       <Body muted style={{ fontSize: 13 }}>The raw EMG is kept ({(ws.reduce((n, w) => n + w.bytes, 0) / 1e6).toFixed(1)} MB), so it can be re-analysed later with better detection.</Body>
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>

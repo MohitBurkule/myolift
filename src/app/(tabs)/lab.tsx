@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Body, Button, Card, Label, Title } from "../../components/ui";
 import { exportExperiments, importAsWorkout, listExperiments, useExperimentsVersion, videoFile } from "../../lib/experiments";
 import { clock, useTheme } from "../../lib/theme";
+import { dayKey } from "../../lib/insights";
 
 /** Experiments: EMG + video recordings of specific things (holds, pushes, stretches…) with notes. */
 export default function LabScreen() {
@@ -40,6 +41,7 @@ export default function LabScreen() {
         <View key={d} style={{ gap: 8 }}>
           <Label>{d}</Label>
           <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+            <Button small title="Insights" variant="primary" onPress={() => router.push({ pathname: "/insights", params: { day: dayKey(new Date(d)) } })} />
             <Button small title="Save day to Downloads" disabled={!!busy} onPress={() => dayRun(d, "save")} />
             <Button small title="Share day" disabled={!!busy} onPress={() => dayRun(d, "share")} />
             {list.some((e) => new Date(e.startedAt).toDateString() === d && !e.importedTo) ? <Button small title="Add to History as a workout" disabled={!!busy} onPress={() => dayRun(d, "import")} /> : null}

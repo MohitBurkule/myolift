@@ -51,6 +51,8 @@ export interface VideoMotionResult {
   partial: number;
   /** downsampled trace for plotting */
   trace: { t: number[]; v: number[] };
+  /** the full-rate trace (for per-rep timing in the session insights); missing in older results */
+  traceFull?: { t: number[]; v: number[] };
   fps: number;
   frames: number;
   ms: number;
@@ -354,9 +356,10 @@ export async function analyseMotion(f: GrayFrames, mode: MotionMode, active?: (t
   const every = Math.max(1, Math.round(tr.t.length / 400));
   const trace = { t: [] as number[], v: [] as number[] };
   for (let i = 0; i < tr.t.length; i += every) { trace.t.push(Math.round(tr.t[i] * 100) / 100); const v = tr.value[i]; trace.v.push(v === v ? Math.round(v * 1000) / 1000 : 0); }
+  const traceFull = { t: tr.t.map((x) => Math.round(x * 1000) / 1000), v: tr.value.map((v) => (v === v ? Math.round(v * 1000) / 1000 : 0)) };
   const n = f.t.length;
   return {
-    mode, reps, full: reps.filter((r) => r.range === "full").length, partial: reps.filter((r) => r.range === "partial").length,
+    mode, reps, traceFull, full: reps.filter((r) => r.range === "full").length, partial: reps.filter((r) => r.range === "partial").length,
     trace, fps: n > 1 ? (n - 1) / (f.t[n - 1] - f.t[0] || 1) : 0, frames: n, ms: Date.now() - t0, version: 1,
   };
 }
