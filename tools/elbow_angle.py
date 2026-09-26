@@ -6,7 +6,8 @@ Elbow angle from an experiment video, on the EMG clock.
 
 Reads experiment.json + video.mp4 (from a MyoLift experiments export), runs MediaPipe pose on
 every frame and writes <dir>/angle.csv:
-  t_emg_s, t_video_s, left_2d, right_2d, left_3d, right_3d, left_vis, right_vis
+  t_emg_s, t_video_s, left_2d, right_2d, left_3d, right_3d, left_vis, right_vis,
+  then <side>_<sh|el|wr>_<x|y|v>: image landmark pixels + visibility (for tools/arm_fit.py)
 Angles are elbow flexion in degrees: 0 = straight arm, 90 = right angle. 2D uses the image
 landmarks (best when the camera is side-on); 3D uses MediaPipe's world landmarks (less sensitive
 to the camera angle, noisier). t_emg_s = t_video_s + video.offsetS from experiment.json.
@@ -67,13 +68,18 @@ def main():
                         row[f"{side}_2d"] = round(flexion(p(SHOULDER[side]), p(ELBOW[side]), p(WRIST[side])), 1)
                         row[f"{side}_3d"] = round(flexion(q(SHOULDER[side]), q(ELBOW[side]), q(WRIST[side])), 1)
                         row[f"{side}_vis"] = round(min(lm[k].visibility for k in (SHOULDER[side], ELBOW[side], WRIST[side])), 2)
+                        for nm, kk in (("sh", SHOULDER[side]), ("el", ELBOW[side]), ("wr", WRIST[side])):
+                            row[f"{side}_{nm}_x"], row[f"{side}_{nm}_y"], row[f"{side}_{nm}_v"] = round(lm[kk].x * w, 1), round(lm[kk].y * h, 1), round(lm[kk].visibility, 2)
                     else:
                         row[f"{side}_2d"] = row[f"{side}_3d"] = row[f"{side}_vis"] = ""
+                        for nm in ("sh", "el", "wr"):
+                            row[f"{side}_{nm}_x"] = row[f"{side}_{nm}_y"] = row[f"{side}_{nm}_v"] = ""
                 rows.append(row)
             i += 1
     out = os.path.join(a.dir, "angle.csv")
     with open(out, "w", newline="") as f:
         cols = ["t_emg_s", "t_video_s", "left_2d", "right_2d", "left_3d", "right_3d", "left_vis", "right_vis"]
+        cols += [f"{sd}_{nm}_{c}" for sd in ("left", "right") for nm in ("sh", "el", "wr") for c in ("x", "y", "v")]
         wr = csv.DictWriter(f, fieldnames=cols); wr.writeheader(); wr.writerows(rows)
     seen = sum(1 for r in rows if r["left_2d"] != "")
     print(f"{out}: {len(rows)} frames, pose found in {seen}, video offset {offset:.2f} s")
