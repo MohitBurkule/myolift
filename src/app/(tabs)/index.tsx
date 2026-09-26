@@ -153,6 +153,7 @@ export default function WorkoutScreen() {
       <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: 12, paddingHorizontal: 16, backgroundColor: t.bg, borderTopWidth: 1, borderTopColor: t.line, flexDirection: "row", gap: 8 }}>
         <Button title="Sensors" style={{ flex: 1 }} onPress={() => router.push("/sensors")} />
         <Button title="Calibrate" style={{ flex: 1 }} disabled={!s.placements.length} onPress={() => router.push("/calibrate")} />
+        {active ? <Button title="Camera" style={{ flex: 1 }} onPress={() => router.push("/workoutcam")} /> : null}
         {active ? (
           <Button title="End" variant="stop" style={{ flex: 1 }} onPress={async () => { const id = await endWorkout(); if (id) router.push({ pathname: "/workout/[id]", params: { id } }); }} />
         ) : (

@@ -1,16 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { CameraView, useCameraPermissions } from "expo-camera";
 import { useKeepAwake } from "expo-keep-awake";
 import Native from "../../modules/myoblue-native";
 import { Body, Button, Card, Label, Title, Toggle } from "../components/ui";
+import { SyncedCamera, type SyncedCameraHandle } from "../components/SyncedCamera";
+import { WeightChips } from "../components/WeightChips";
+import { removeWeightAt, setWeightAt } from "../core/expdata";
 import {
   activeExperiment, deleteExperiment, PROTOCOL, PROTOCOL_PRESET, exportExperiments, FEEL, loadExperiment, markExperiment, nowS, PRESETS, startExperiment, stopExperiment,
-  updateExperiment, useExperimentsVersion, videoFile, videoSaved, videoStarted, type ExperimentMeta,
+  editWeights, saveNotes, setRunningWeight, undoLastEdit, undoNotesFor, updateExperiment, useExperimentsVersion, videoFile, videoSaved, videoStarted, type ExperimentMeta,
 } from "../lib/experiments";
 import { useSensors } from "../lib/sensors";
-import { useSettings } from "../lib/settings";
+import { updateSettings, useSettings } from "../lib/settings";
 import { clock, useTheme } from "../lib/theme";
 
 const QUICK_MARKS = ["start", "hold", "push hard", "relax", "stretch", "rep", "change angle", "stop"];
@@ -31,18 +33,18 @@ function NewExperiment() {
   useKeepAwake();
   const s = useSettings();
   const sensors = useSensors();
-  const [perm, requestPerm] = useCameraPermissions();
-  const cam = useRef<CameraView>(null);
-  const [ready, setReady] = useState(false);
-  const [useCam, setUseCam] = useState(true);
-  const [facing, setFacing] = useState<"front" | "back">("back");
-  const [preset, setPreset] = useState(PRESETS[0]);
+  const last = s.lastExperiment;
+  const cam = useRef<SyncedCameraHandle>(null);
+  const [useCam, setUseCam] = useState(last?.useCam ?? true);
+  const [audio, setAudio] = useState(last?.audio ?? true);
+  const [facing, setFacing] = useState<"front" | "back">(last?.facing ?? "back");
+  const [preset, setPreset] = useState(PRESETS.find((p) => p.id === last?.preset) ?? PRESETS[0]);
   const [notes, setNotes] = useState("");
   const [feel, setFeel] = useState<string>("fresh");
   const [running, setRunning] = useState<ExperimentMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
-  const [weight, setWeight] = useState(s.weight !== null && s.weight !== undefined ? String(s.weight) : "");
+  const [weight, setWeight] = useState<number | null>(last ? last.weight : null);
   const [step, setStep] = useState<{ i: number; phase: "go" | "rest"; until: number } | null>(null);
   const [, tick] = useState(0);
   const videoDone = useRef<Promise<void> | null>(null);
@@ -54,9 +56,7 @@ function NewExperiment() {
     return () => clearInterval(h);
   }, [running]);
   // leaving the screen stops the recording (the camera goes away with it)
-  useEffect(() => () => { if (live.current) { live.current = false; cam.current?.stopRecording(); stopExperiment(); } }, []);
-
-  const kg = () => { const v = parseFloat(weight.replace(",", ".")); return Number.isFinite(v) ? v : null; };
+  useEffect(() => () => { if (live.current) { live.current = false; cam.current?.stop(); stopExperiment(); } }, []);
 
   /** Guided protocol: step through PROTOCOL with countdowns, marking each start/end automatically. */
   async function runProtocol() {
@@ -77,22 +77,27 @@ function NewExperiment() {
   async function start(guided = false) {
     setError(null);
     if (!sensors.length) { setError("Connect the sensors first (Sensors)."); return; }
-    const r = startExperiment(guided ? PROTOCOL_PRESET : preset, notes, feel, kg());
+    if (useCam && !cam.current?.ready()) { setError("The camera isn't ready yet. Wait a second, or turn off Record video."); return; }
+    updateSettings({ lastExperiment: { facing, useCam, audio, weight, preset: preset.id } });
+    const r = startExperiment(guided ? PROTOCOL_PRESET : preset, notes, feel, weight);
     if (typeof r === "string") { setError(r); return; }
     live.current = true;
     setRunning(r);
     markExperiment("sync flex");
-    if (useCam && cam.current && ready) {
-      videoStarted(facing);
-      const p = cam.current.recordAsync();
-      videoDone.current = p.then((v) => { if (v?.uri) videoSaved(r.id, v.uri, Native?.now() ?? 0); }).catch((e) => setError(`Video: ${e?.message ?? e}`));
+    if (useCam) {
+      const rec = cam.current?.record();
+      if (rec) {
+        videoStarted(facing);
+        updateExperiment(r.id, { audio });
+        videoDone.current = rec.done.then((uri) => { if (uri) videoSaved(r.id, uri, Native?.now() ?? 0); else setError("The video wasn't saved."); });
+      }
     }
     if (guided) runProtocol();
   }
 
   async function finish() {
     live.current = false;
-    if (videoDone.current) cam.current?.stopRecording();
+    if (videoDone.current) cam.current?.stop();
     const m = stopExperiment() ?? running;
     if (videoDone.current) { await videoDone.current; videoDone.current = null; }
     setRunning(null);
@@ -108,22 +113,14 @@ function NewExperiment() {
     <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
       <Stack.Screen options={{ title: running ? `Recording ${clock(el)}` : "New experiment" }} />
       {useCam ? (
-        perm?.granted ? (
-          <View style={{ height: 300, borderRadius: 12, overflow: "hidden", backgroundColor: "#000" }}>
-            <CameraView ref={cam} style={{ flex: 1 }} facing={facing} mode="video" mute videoQuality="720p" onCameraReady={() => setReady(true)} />
-            {running && el < SYNC_S ? (
-              <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.45)" }}>
-                <Text style={{ color: "#fff", fontSize: 26, fontWeight: "800", textAlign: "center" }}>Sync: flex hard once, now!</Text>
-              </View>
-            ) : null}
-            {running ? <Text style={{ position: "absolute", top: 8, left: 10, color: "#fff", fontWeight: "800", backgroundColor: "rgba(200,0,0,0.8)", paddingHorizontal: 8, borderRadius: 6 }}>● REC {clock(el)}</Text> : null}
-            {!running ? (
-              <Pressable onPress={() => setFacing((f) => (f === "back" ? "front" : "back"))} style={{ position: "absolute", right: 10, bottom: 10, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }} accessibilityRole="button">
-                <Text style={{ color: "#fff", fontWeight: "600" }}>Switch camera</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : <Button title="Allow camera" onPress={requestPerm} />
+        <SyncedCamera ref={cam} facing={facing} onFacing={setFacing} audio={audio} locked={!!running} overlay={<>
+          {running && el < SYNC_S ? (
+            <View style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.45)" }}>
+              <Text style={{ color: "#fff", fontSize: 26, fontWeight: "800", textAlign: "center" }}>Sync: flex hard once, now!</Text>
+            </View>
+          ) : null}
+          {running ? <Text style={{ position: "absolute", top: 8, left: 10, color: "#fff", fontWeight: "800", backgroundColor: "rgba(200,0,0,0.8)", paddingHorizontal: 8, borderRadius: 6 }}>● REC {clock(el)}</Text> : null}
+        </>} />
       ) : null}
       {!running ? <Body muted style={{ fontSize: 13 }}>Prop the phone side-on, 2–3 m away at about waist height, with your whole arm (shoulder to hand) in the frame.</Body> : null}
 
@@ -153,12 +150,8 @@ function NewExperiment() {
       })() : null}
       {running ? (
         <>
-          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-            <Text style={{ color: t.ink }}>Weight</Text>
-            <TextInput value={weight} onChangeText={setWeight} keyboardType="decimal-pad" onEndEditing={() => markExperiment(`weight ${weight} ${s.unit}`)}
-              style={{ width: 90, borderWidth: 1, borderColor: t.line, borderRadius: 10, paddingHorizontal: 10, color: t.ink, backgroundColor: t.panel }} />
-            <Text style={{ color: t.muted }}>{s.unit} (changing it adds a mark)</Text>
-          </View>
+          <Label>Weight (each change is recorded with its time)</Label>
+          <WeightChips value={weight} onChange={(kg) => { setWeight(kg); setRunningWeight(kg); }} />
           <Label>Mark what you're doing now</Label>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {QUICK_MARKS.map((m) => <Button key={m} small title={m} onPress={() => markExperiment(m)} />)}
@@ -184,17 +177,14 @@ function NewExperiment() {
           </View>
           <TextInput value={notes} onChangeText={setNotes} multiline placeholder="Notes: weight, angle, what you're testing…" placeholderTextColor={t.muted}
             style={{ minHeight: 80, borderWidth: 1, borderColor: t.line, borderRadius: 10, padding: 10, color: t.ink, backgroundColor: t.panel, textAlignVertical: "top" }} />
-          <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
-            <Text style={{ color: t.ink }}>Weight</Text>
-            <TextInput value={weight} onChangeText={setWeight} keyboardType="decimal-pad" placeholder="none"
-              placeholderTextColor={t.muted} style={{ width: 90, borderWidth: 1, borderColor: t.line, borderRadius: 10, paddingHorizontal: 10, color: t.ink, backgroundColor: t.panel }} />
-            <Text style={{ color: t.muted }}>{s.unit}</Text>
-          </View>
-          <Toggle label="Record video" hint="Saved with the EMG on the same clock (no sound)." value={useCam} onChange={setUseCam} />
+          <Label>Weight</Label>
+          <WeightChips value={weight} onChange={setWeight} />
+          <Toggle label="Record video" hint="Saved with the EMG on the same clock." value={useCam} onChange={setUseCam} />
+          {useCam ? <Toggle label="Record sound (voice notes)" hint="Say what you are doing (e.g. dropping to 32, half reps now); it gets transcribed with timestamps later." value={audio} onChange={setAudio} /> : null}
           {error ? <Text style={{ color: t.warn }}>{error}</Text> : null}
-          <Button title="Start" variant="record" disabled={useCam && perm?.granted === true && !ready} onPress={() => start(false)} />
+          <Button title="Start" variant="record" onPress={() => start(false)} />
           <Button title={`Run the guided protocol (${PROTOCOL.length} tests, ~${Math.round(PROTOCOL.reduce((n, p) => n + p.seconds + p.rest, 0) / 60)} min)`} variant="primary"
-            disabled={useCam && perm?.granted === true && !ready} onPress={() => start(true)} />
+            onPress={() => start(true)} />
           <Body muted style={{ fontSize: 12 }}>The protocol records everything in one go and marks each step automatically; it tells you what to do next and counts down.</Body>
           <Body muted style={{ fontSize: 12 }}>It starts with a 3-second sync flex: tense hard once so the video and EMG can be lined up exactly.</Body>
         </>
@@ -208,6 +198,18 @@ function Saved({ id }: { id: string }) {
   useExperimentsVersion();
   const m = loadExperiment(id);
   const [notes, setNotes] = useState(m?.notes ?? "");
+  const [showHistory, setShowHistory] = useState(false);
+  const [atS, setAtS] = useState("");
+  const [newKg, setNewKg] = useState<number | null>(m?.weights[m.weights.length - 1]?.kg ?? m?.weight ?? null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // autosave while typing; the last edit is flushed when leaving
+  const latest = useRef(notes);
+  useEffect(() => () => { if (timer.current) { clearTimeout(timer.current); saveNotes(id, latest.current); } }, [id]);
+  const onNotes = (v: string) => {
+    setNotes(v); latest.current = v;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { timer.current = null; saveNotes(id, v); }, 800);
+  };
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -225,9 +227,43 @@ function Saved({ id }: { id: string }) {
         <Text style={{ color: t.muted, fontSize: 13 }}>{m.video ? (vid.exists ? `Video ${(vid.size / 1e6).toFixed(0)} MB, starts ${m.video.offsetS.toFixed(2)} s after the EMG` : "Video wasn't saved") : "No video"}</Text>
       </Card>
       <Label>Notes</Label>
-      <TextInput value={notes} onChangeText={setNotes} onEndEditing={() => updateExperiment(id, { notes })} multiline
+      <TextInput value={notes} onChangeText={onNotes} multiline
         style={{ minHeight: 90, borderWidth: 1, borderColor: t.line, borderRadius: 10, padding: 10, color: t.ink, backgroundColor: t.panel, textAlignVertical: "top" }} />
-      <Button small title="Save notes" onPress={() => updateExperiment(id, { notes })} />
+      <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+        <Text style={{ color: t.muted, fontSize: 12, flex: 1 }}>Saved automatically{m.notesHistory.length > 1 ? ` · ${m.notesHistory.length - 1} earlier version${m.notesHistory.length > 2 ? "s" : ""}` : ""}</Text>
+        <Button small title="Undo" disabled={m.notesHistory.length < 2} onPress={() => { if (timer.current) { clearTimeout(timer.current); timer.current = null; saveNotes(id, latest.current); } const v = undoNotesFor(id); if (v !== null) { setNotes(v); latest.current = v; } }} />
+        <Button small title={showHistory ? "Hide history" : "History"} disabled={m.notesHistory.length < 2} onPress={() => setShowHistory(!showHistory)} />
+      </View>
+      {showHistory ? (
+        <Card style={{ padding: 10, gap: 8 }}>
+          {m.notesHistory.slice().reverse().map((v, i) => (
+            <Pressable key={i} onPress={() => { onNotes(v.text); }} accessibilityRole="button" accessibilityLabel="Restore this version">
+              <Text style={{ color: t.muted, fontSize: 12 }}>{new Date(v.at).toLocaleString()}{i === 0 ? " · current" : " · tap to restore"}</Text>
+              <Text style={{ color: t.ink, fontSize: 13 }} numberOfLines={3}>{v.text || "(empty)"}</Text>
+            </Pressable>
+          ))}
+        </Card>
+      ) : null}
+      <Label>Weight</Label>
+      <Card style={{ padding: 10, gap: 8 }}>
+        {m.weights.length ? m.weights.map((w, i) => (
+          <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ color: t.muted, width: 70, fontVariant: ["tabular-nums"] }}>{w.t.toFixed(1)} s</Text>
+            <Text style={{ color: t.ink, fontWeight: "700", flex: 1 }}>{w.kg} {m.unit}</Text>
+            <Button small title="Use chips value" onPress={() => newKg !== null && editWeights(id, m.weights.map((x, j) => (j === i ? { ...x, kg: newKg } : x)))} />
+            <Button small title="Remove" onPress={() => editWeights(id, removeWeightAt(m.weights, i))} />
+          </View>
+        )) : <Body muted style={{ fontSize: 13 }}>No weight recorded.</Body>}
+        <WeightChips value={newKg} onChange={setNewKg} exerciseId={m.exercise?.id} />
+        <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+          <TextInput value={atS} onChangeText={setAtS} keyboardType="decimal-pad" placeholder="at s" placeholderTextColor={t.muted}
+            style={{ width: 80, borderWidth: 1, borderColor: t.line, borderRadius: 10, paddingHorizontal: 10, color: t.ink, backgroundColor: t.panel }} />
+          <Button small title={`Add ${newKg ?? "–"} ${m.unit} at this time`} disabled={newKg === null} onPress={() => { const at = parseFloat(atS.replace(",", ".")); editWeights(id, setWeightAt(m.weights, Number.isFinite(at) ? at : 0, newKg!)); setAtS(""); }} />
+        </View>
+        <Button small title="Undo last weight change" disabled={!m.edits.length} onPress={() => undoLastEdit(id)} />
+        <Text style={{ color: t.muted, fontSize: 12 }}>Changes here only edit the labels; the recording itself is never changed.</Text>
+      </Card>
+      {m.importedTo ? <Body muted style={{ fontSize: 13 }}>Also in History as a workout.</Body> : null}
       <Label>Marks</Label>
       <MarkList marks={m.marks} />
       <Button title={busy ?? "Save to Downloads (for USB)"} variant="primary" disabled={!!busy} onPress={async () => {

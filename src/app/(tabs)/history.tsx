@@ -10,6 +10,15 @@ import { HardSetsCard, musclesOf } from "../../components/HardSets";
 import { hardSetsByMuscle } from "../../core/setmodel";
 import { clock, useTheme } from "../../lib/theme";
 import { groupSessions, listWorkouts, useWorkout, type WorkoutSummary } from "../../lib/workout";
+import { listExperiments, type ExperimentMeta } from "../../lib/experiments";
+
+const GAP = 20 * 60_000;
+/** experiments recorded during (or within 20 min of) a session */
+const during = (exps: ExperimentMeta[], g: WorkoutSummary[]) => {
+  const a = Math.min(...g.map((w) => new Date(w.meta.startedAt).getTime())) - GAP;
+  const b = Math.max(...g.map((w) => new Date(w.meta.endedAt ?? w.meta.startedAt).getTime())) + GAP;
+  return exps.filter((e) => { const t = new Date(e.startedAt).getTime(); return t >= a && t <= b; });
+};
 
 export default function HistoryScreen() {
   const t = useTheme();
@@ -18,7 +27,11 @@ export default function HistoryScreen() {
   const [groups, setGroups] = useState<WorkoutSummary[][]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
-  useFocusEffect(useCallback(() => { setGroups(groupSessions(listWorkouts())); }, [live.active?.meta.id]));
+  const [exps, setExps] = useState<ExperimentMeta[]>([]);
+  useFocusEffect(useCallback(() => { setGroups(groupSessions(listWorkouts())); setExps(listExperiments()); }, [live.active?.meta.id]));
+  // experiment days with no workout around them (not added to History yet)
+  const loose = exps.filter((e) => !e.importedTo && !groups.some((g) => during([e], g).length));
+  const looseDays = [...new Set(loose.map((e) => new Date(e.startedAt).toDateString()))];
   return (
     <FlatList
       style={{ backgroundColor: t.bg }}
@@ -41,6 +54,13 @@ export default function HistoryScreen() {
             finally { setBusy(null); }
           }} />
           {saved ? <Body style={{ fontSize: 13 }}>{saved}</Body> : null}
+          {looseDays.map((d) => (
+            <Card key={d} style={{ padding: 12, gap: 6 }}>
+              <Text style={{ color: t.ink, fontWeight: "700" }}>{d}: {loose.filter((e) => new Date(e.startedAt).toDateString() === d).length} Lab experiments</Text>
+              <Body muted style={{ fontSize: 13 }}>Not in History yet. In Lab, tap "Add to History as a workout" for that day.</Body>
+              <Button small title="Open Lab" onPress={() => router.push("/lab")} />
+            </Card>
+          ))}
           <HardSetsCard />
           <Body muted style={{ fontSize: 12 }}>Workouts started within 20 minutes of each other are shown as one session.</Body>
         </View>
@@ -65,6 +85,7 @@ export default function HistoryScreen() {
                 {start.toLocaleDateString()} {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{end ? ` · ${clock((end.getTime() - start.getTime()) / 1000)}` : ""} · {tot.sets} sets · {tot.reps} reps{hard ? ` · ${Math.round(hard * 10) / 10} hard sets` : ""}{tot.volume ? ` · ${Math.round(tot.volume)} ${first.meta.unit} lifted` : ""}
               </Text>
               {g.length > 1 ? <Text style={{ color: t.muted, fontSize: 12 }}>{g.length} recordings combined</Text> : null}
+              {(() => { const n = during(exps, g).length; return n ? <Text style={{ color: t.muted, fontSize: 12 }}>{n} Lab experiment{n > 1 ? "s" : ""} in this session</Text> : null; })()}
             </Card>
           </Pressable>
         );

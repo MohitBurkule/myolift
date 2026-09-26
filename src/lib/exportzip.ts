@@ -1,5 +1,5 @@
 /** Export raw workout data (everything needed to re-analyse it) as one zip, shared via the Android share sheet. */
-import { Directory, File, Paths } from "expo-file-system";
+import { Directory, File, FileMode, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { ZipWriter } from "../core/zip";
 import { getSettings } from "./settings";
@@ -45,7 +45,12 @@ async function bundle(ids: string[], label: string, progress?: (msg: string) => 
     if (!dir.exists) continue;
     for (const item of dir.list()) {
       if (!(item instanceof File) || item.name.endsWith(".zip")) continue;
-      z.add(`workouts/${id}/${item.name}`, await item.bytes());
+      if (item.name.endsWith(".mp4")) {
+        // videos are streamed in chunks, read-only
+        const h = item.open(FileMode.ReadOnly);
+        z.addChunked(`workouts/${id}/${item.name}`, () => { const c = h.readBytes(1 << 20); return c.length ? c : null; });
+        h.close();
+      } else z.add(`workouts/${id}/${item.name}`, await item.bytes());
     }
     await new Promise((r) => setTimeout(r, 0));
   }

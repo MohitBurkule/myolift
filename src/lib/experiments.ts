@@ -8,8 +8,9 @@ import { Directory, File, FileMode, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import Native from "../../modules/myoblue-native";
 import { ZipWriter } from "../core/zip";
+import { buildImport, logEdit, normalizeMeta, pushNotes, setWeightAt, shiftRows, undoEdit, undoNotes, type EditEntry, type NotesVersion, type WeightChange } from "../core/expdata";
 import { getSettings } from "./settings";
-import { activeWorkoutId, APP_VERSION, listWorkouts } from "./workout";
+import { activeWorkoutId, analyseWorkout, APP_VERSION, listWorkouts, workoutsDir } from "./workout";
 
 export interface Preset { id: string; title: string; text: string }
 export const PRESETS: Preset[] = [
@@ -67,6 +68,16 @@ export interface ExperimentMeta {
   placements: unknown;
   calibrations: unknown;
   app: string;
+  /** weight over time (s since start): drop sets, corrections made later */
+  weights: WeightChange[];
+  /** every saved version of the notes (autosave), for undo */
+  notesHistory: NotesVersion[];
+  /** later edits (weights…), for undo */
+  edits: EditEntry[];
+  /** the video has sound (voice notes) */
+  audio: boolean;
+  /** workout this experiment was copied into */
+  importedTo?: string;
 }
 
 export function experimentsDir(): Directory {
@@ -93,13 +104,13 @@ export function listExperiments(): ExperimentMeta[] {
   const out: ExperimentMeta[] = [];
   for (const d of experimentsDir().list()) {
     if (!(d instanceof Directory)) continue;
-    try { out.push(JSON.parse(new File(d, "experiment.json").textSync())); } catch {}
+    try { out.push(normalizeMeta(JSON.parse(new File(d, "experiment.json").textSync()))); } catch {}
   }
   return out.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
 export function loadExperiment(id: string): ExperimentMeta | null {
-  try { return JSON.parse(new File(new Directory(experimentsDir(), id), "experiment.json").textSync()); } catch { return null; }
+  try { return normalizeMeta(JSON.parse(new File(new Directory(experimentsDir(), id), "experiment.json").textSync())); } catch { return null; }
 }
 
 export function updateExperiment(id: string, patch: Partial<ExperimentMeta>) {
@@ -136,6 +147,7 @@ export function startExperiment(preset: Preset, notes: string, feel: string, wei
     id, preset: preset.id, title: preset.title, notes, feel, marks: [], startedAt: started.toISOString(), originNative: 0,
     context: context(started), exercise: s.exercise ?? null, weight, unit: s.unit,
     placements: s.placements, calibrations: s.refs, app: APP_VERSION,
+    weights: weight !== null ? [{ t: 0, kg: weight }] : [], notesHistory: [], edits: [], audio: false,
   };
   if (!Native.startRecording(dir.uri, `Experiment: ${preset.title}`)) return "Couldn't start the recorder.";
   const st = Native.recordingStatus();
@@ -156,6 +168,91 @@ export function markExperiment(label: string): Mark | null {
   save(active.meta, active.dir);
   bump();
   return m;
+}
+
+/** Weight changed while recording: timeline + a mark at this moment. */
+export function setRunningWeight(kg: number) {
+  if (!active) return;
+  const t = Math.round(nowS() * 1000) / 1000;
+  active.meta.weights = setWeightAt(active.meta.weights, t, kg);
+  active.meta.weight = kg;
+  markExperiment(`weight ${kg} ${active.meta.unit}`);
+}
+
+/** Autosave notes (keeps every version in notesHistory). */
+export function saveNotes(id: string, text: string) {
+  const m = active?.meta.id === id ? active.meta : loadExperiment(id);
+  if (!m || m.notes === text) return;
+  updateExperiment(id, { notes: text, notesHistory: pushNotes(m.notesHistory, m.notes, text, Date.now()) });
+}
+export function undoNotesFor(id: string): string | null {
+  const m = loadExperiment(id);
+  const u = m && undoNotes(m.notesHistory);
+  if (!u) return null;
+  updateExperiment(id, { notes: u.text, notesHistory: u.history });
+  return u.text;
+}
+
+/** Correct the weight(s) later; the change is logged and can be undone. */
+export function editWeights(id: string, weights: WeightChange[]) {
+  const m = loadExperiment(id);
+  if (!m) return;
+  const sorted = [...weights].sort((a, b) => a.t - b.t);
+  updateExperiment(id, { weights: sorted, weight: sorted[0]?.kg ?? null, edits: logEdit(m.edits, "weights", m.weights, sorted, Date.now()) });
+}
+export function undoLastEdit(id: string): boolean {
+  const m = loadExperiment(id);
+  const u = m && undoEdit(m.edits);
+  if (!u) return false;
+  if (u.field === "weights") { const w = (u.value as WeightChange[]) ?? []; updateExperiment(id, { weights: w, weight: w[0]?.kg ?? null, edits: u.edits }); }
+  return true;
+}
+
+/**
+ * Copy a set of experiments (e.g. one day) into History as one workout. The EMG rows are copied
+ * with their timestamps shifted onto one timeline; the experiment folders are only read (and get
+ * an `importedTo` note). Returns the new workout id.
+ */
+export async function importAsWorkout(ids: string[], progress?: (m: string) => void): Promise<string> {
+  const metas = ids.map(loadExperiment).filter((m): m is ExperimentMeta => !!m);
+  if (!metas.length) throw new Error("No experiments to add");
+  const plan = buildImport(metas as any);
+  const started = new Date(plan.startedAt!);
+  const wid = started.toISOString().replace(/[:.]/g, "-") + "-lab";
+  const dir = new Directory(workoutsDir(), wid);
+  if (dir.exists) throw new Error("These experiments are already in History");
+  dir.create({ intermediates: true, idempotent: true });
+  const sensors = new Map<string, { id: string; name: string; file: string }>();
+  const chunks = new Map<string, Uint8Array[]>();
+  let i = 0;
+  for (const m of [...metas].sort((a, b) => a.startedAt.localeCompare(b.startedAt))) {
+    progress?.(`Copying ${++i}/${metas.length}…`);
+    const ed = new Directory(experimentsDir(), m.id);
+    let list: { id: string; name: string; file: string }[] = [];
+    try { list = JSON.parse(new File(ed, "sensors.json").textSync()); } catch {}
+    for (const s of list) {
+      const f = new File(ed, s.file);
+      if (!f.exists) continue;
+      sensors.set(s.id, s);
+      const arr = chunks.get(s.file) ?? [];
+      arr.push(shiftRows(await f.bytes(), plan.shift.get(m.id) ?? 0));
+      chunks.set(s.file, arr);
+    }
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  for (const [file, arr] of chunks) {
+    const out = new File(dir, file);
+    out.create();
+    for (const c of arr) out.write(c, { append: true });
+  }
+  const w = (name: string, v: unknown) => { const f = new File(dir, name); f.create(); f.write(typeof v === "string" ? v : JSON.stringify(v, null, 2)); };
+  w("sensors.json", [...sensors.values()]);
+  w("events.jsonl", plan.events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  w("workout.json", { id: wid, name: `Lab: ${[...new Set(metas.map((m) => m.title))].slice(0, 3).join(" · ")}`, startedAt: plan.startedAt, endedAt: plan.endedAt, unit: metas[0].unit, app: APP_VERSION, fromExperiments: metas.map((m) => m.id) });
+  for (const m of metas) updateExperiment(m.id, { importedTo: wid });
+  progress?.("Analysing…");
+  await analyseWorkout(wid);
+  return wid;
 }
 
 export function videoFile(id: string, name = "video.mp4") { return new File(new Directory(experimentsDir(), id), name); }

@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Body, Button, Card, Label, Title } from "../../components/ui";
-import { exportExperiments, listExperiments, useExperimentsVersion, videoFile } from "../../lib/experiments";
+import { exportExperiments, importAsWorkout, listExperiments, useExperimentsVersion, videoFile } from "../../lib/experiments";
 import { clock, useTheme } from "../../lib/theme";
 
 /** Experiments: EMG + video recordings of specific things (holds, pushes, stretches…) with notes. */
@@ -21,6 +21,16 @@ export default function LabScreen() {
     finally { setBusy(null); }
   };
   const days = [...new Set(list.map((e) => new Date(e.startedAt).toDateString()))];
+  const [dayMsg, setDayMsg] = useState<Record<string, string>>({});
+  const dayRun = async (d: string, what: "save" | "share" | "import") => {
+    const ids = list.filter((e) => new Date(e.startedAt).toDateString() === d).map((e) => e.id);
+    setBusy("Packing…");
+    try {
+      if (what === "import") { const wid = await importAsWorkout(ids, setBusy); setDayMsg((m) => ({ ...m, [d]: "Added to History (the experiments stay here too)." })); router.push({ pathname: "/workout/[id]", params: { id: wid } }); }
+      else { const r = await exportExperiments(ids, setBusy, what); if (what === "save") setDayMsg((m) => ({ ...m, [d]: `Saved to ${r}` })); }
+    } catch (e: any) { setDayMsg((m) => ({ ...m, [d]: `${e?.message ?? e}. Your recordings are untouched.` })); }
+    finally { setBusy(null); }
+  };
   return (
     <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + 12, gap: 12, paddingBottom: 40 }}>
       <Title>Experiments</Title>
@@ -29,6 +39,12 @@ export default function LabScreen() {
       {days.map((d) => (
         <View key={d} style={{ gap: 8 }}>
           <Label>{d}</Label>
+          <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+            <Button small title="Save day to Downloads" disabled={!!busy} onPress={() => dayRun(d, "save")} />
+            <Button small title="Share day" disabled={!!busy} onPress={() => dayRun(d, "share")} />
+            {list.some((e) => new Date(e.startedAt).toDateString() === d && !e.importedTo) ? <Button small title="Add to History as a workout" disabled={!!busy} onPress={() => dayRun(d, "import")} /> : null}
+          </View>
+          {dayMsg[d] ? <Body style={{ fontSize: 13 }}>{dayMsg[d]}</Body> : null}
           {list.filter((e) => new Date(e.startedAt).toDateString() === d).map((e) => (
             <Pressable key={e.id} onPress={() => router.push({ pathname: "/experiment", params: { id: e.id } })} accessibilityRole="button" accessibilityLabel={e.title}>
               <Card style={{ padding: 12, gap: 4 }}>

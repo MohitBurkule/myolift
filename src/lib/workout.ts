@@ -252,6 +252,12 @@ export function redetectLive() {
   emit({});
 }
 
+/** The recording workout's folder and its clock (ms since it started), for the workout camera. */
+export function activeWorkoutClock(): { dir: Directory; id: string; nowMs: () => number } | null {
+  const a = state.active;
+  return a ? { dir: a.dir, id: a.meta.id, nowMs: () => now() - a.origin } : null;
+}
+
 export function activeWorkoutId(): string | null {
   return state.active?.meta.id ?? null;
 }

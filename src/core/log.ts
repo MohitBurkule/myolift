@@ -30,6 +30,8 @@ export type WorkoutEvent =
   | { t: number; type: "calibration"; sensorId: string; muscle: string; side: Side; ref: Reference; snrDb: number; fingerprint?: Fingerprint; placement?: { status: string; similarity: number | null; messages: string[] } }
   | { t: number; type: "setEdit"; setStart: number; patch: SetPatch }
   | { t: number; type: "note"; text: string }
+  /** a camera recording during the workout: file in the workout folder; t = when recording was asked to start */
+  | { t: number; type: "video"; file: string; audio: boolean; facing: "front" | "back"; endT?: number }
   | { t: number; type: "photo"; muscle: string; side: Side; uri: string; messages: string[] };
 
 export interface SetPatch {

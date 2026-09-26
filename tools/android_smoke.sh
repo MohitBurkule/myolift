@@ -58,16 +58,22 @@ tap_scroll "Save"; sleep 2
 adb shell input keyevent KEYCODE_BACK; sleep 2
 shot 05-ready
 
-# the bar during a workout is [Sensors][Calibrate][End]; read positions now (dumps fail while recording)
+# the bar during a workout is [Sensors][Calibrate][Camera][End] (equal widths, 16dp padding, 8dp gaps);
+# dumps fail while recording, so compute the positions from the screen size now
 dump
 read SX SY < <(find_xy "Sensors") || fail "Sensors button"
-read CX CY < <(find_xy "Calibrate") || fail "Calibrate button"
-END_X=$((CX + (CX - SX))); END_Y=$CY
+WPX=$(adb shell wm size | grep -o '[0-9]*x' | tail -1 | tr -d x)
+DEN=$(adb shell wm density | grep -o '[0-9]*' | tail -1)
+read CAM_X END_X < <(awk -v w=$WPX -v d=$DEN 'BEGIN{d=d/160; b=(w-32*d-24*d)/4; printf "%d %d\n", 16*d+2*(b+8*d)+b/2, w-16*d-b/2}')
+END_Y=$SY
+echo "bar: camera x=$CAM_X end x=$END_X y=$END_Y"
 tap "▶ Start"; sleep 5; alive
 adb shell dumpsys activity services $PKG | grep -q "RecordingService" || fail "foreground service not running"
 echo "workout recording"
 sleep 45; shot 06-first-set
 sleep 35; shot 07-sets; alive
+adb shell input tap $CAM_X $END_Y; sleep 4; shot 07b-workout-camera; alive
+adb shell input keyevent KEYCODE_BACK; sleep 3; alive
 
 adb shell input keyevent KEYCODE_HOME; sleep 15; alive
 adb shell dumpsys activity services $PKG | grep -q "isForeground=true" || fail "service not foreground in background"
@@ -89,6 +95,7 @@ adb shell input keyevent KEYCODE_BACK; sleep 2
 tap "History"; sleep 3; shot 12-history
 alive
 tap "Lab"; sleep 2; has "Experiments" || fail "Lab tab"
+has "Save day to Downloads" || has "No experiments yet." || fail "Lab day export"
 tap "+ New experiment"; sleep 3; shot 13-experiment
 has "Switch camera" || has "Allow camera" || fail "experiment screen"
 adb shell input keyevent KEYCODE_BACK; sleep 2
