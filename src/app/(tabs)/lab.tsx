@@ -13,6 +13,13 @@ export default function LabScreen() {
   useExperimentsVersion();
   const list = listExperiments();
   const [busy, setBusy] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const run = async (mode: "share" | "save") => {
+    setSaved(null); setBusy("Packing…");
+    try { const r = await exportExperiments(list.map((e) => e.id), setBusy, mode); if (mode === "save") setSaved(`Saved to ${r}. Connect the phone by USB (File transfer) and open Download/MyoLift.`); }
+    catch (e: any) { setSaved(`Couldn't export: ${e?.message ?? e}. Your recordings are untouched.`); }
+    finally { setBusy(null); }
+  };
   const days = [...new Set(list.map((e) => new Date(e.startedAt).toDateString()))];
   return (
     <ScrollView style={{ backgroundColor: t.bg }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + 12, gap: 12, paddingBottom: 40 }}>
@@ -39,8 +46,12 @@ export default function LabScreen() {
         </View>
       ))}
       {!list.length ? <Body muted>No experiments yet.</Body> : (
-        <Button title={busy ?? "Export all experiments (zip, with videos)"} disabled={!!busy}
-          onPress={async () => { setBusy("Packing…"); try { await exportExperiments(list.map((e) => e.id), setBusy); } finally { setBusy(null); } }} />
+        <View style={{ gap: 8 }}>
+          <Button title={busy ?? "Save all to Downloads (for USB)"} variant="primary" disabled={!!busy} onPress={() => run("save")} />
+          <Button title="Share all (zip, with videos)" disabled={!!busy} onPress={() => run("share")} />
+          {saved ? <Body style={{ fontSize: 13 }}>{saved}</Body> : null}
+          <Body muted style={{ fontSize: 12 }}>Exporting makes a copy; the recordings stay in the app.</Body>
+        </View>
       )}
     </ScrollView>
   );

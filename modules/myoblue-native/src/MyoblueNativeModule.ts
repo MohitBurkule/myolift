@@ -38,6 +38,8 @@ declare class MyoblueNativeModule extends NativeModule<MyoblueEvents> {
   ignoringBatteryOptimizations(): boolean;
   openBatterySettings(): void;
   appVersionCode(): number;
+  /** copy a file into Downloads/MyoLift (visible over USB); returns the path shown to the user */
+  saveToDownloads(src: string, name: string): Promise<string>;
   canInstallUpdates(): boolean;
   openInstallPermission(): void;
   /** download the APK and hand it to the system installer; false if an update is already running */

@@ -70,6 +70,11 @@ class MyoblueNativeModule : Module() {
       Updater.install(context, url)
     }
 
+    AsyncFunction("saveToDownloads") { src: String, name: String ->
+      val context = appContext.reactContext ?: throw Exception("no context")
+      Downloads.save(context, src, name)
+    }
+
     Function("openBatterySettings") {
       val context = appContext.reactContext
       if (context != null) MyoBle.openBatterySettings(context)

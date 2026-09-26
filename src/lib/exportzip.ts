@@ -53,16 +53,27 @@ async function bundle(ids: string[], label: string, progress?: (msg: string) => 
   return out;
 }
 
+/** Share sheet, or a copy in Downloads/MyoLift for USB transfer. Returns where it went. */
+export async function deliverZip(f: File, mode: "share" | "save" = "share"): Promise<string> {
+  if (mode === "save") {
+    const Native = require("../../modules/myoblue-native").default;
+    if (!Native) throw new Error("Saving needs the Android app");
+    return await Native.saveToDownloads(f.uri, f.name);
+  }
+  await shareZip(f);
+  return "shared";
+}
+
 async function shareZip(f: File) {
   if (!(await Sharing.isAvailableAsync())) throw new Error("Sharing isn't available on this device");
   await Sharing.shareAsync(f.uri, { mimeType: "application/zip", dialogTitle: f.name });
 }
 
-export async function exportWorkouts(ids: string[], progress?: (msg: string) => void) {
-  await shareZip(await bundle(ids, ids.length === 1 ? ids[0].slice(0, 16) : "session", progress));
+export async function exportWorkouts(ids: string[], progress?: (msg: string) => void, mode: "share" | "save" = "share") {
+  return deliverZip(await bundle(ids, ids.length === 1 ? ids[0].slice(0, 16) : "session", progress), mode);
 }
 
-export async function exportAll(progress?: (msg: string) => void) {
+export async function exportAll(progress?: (msg: string) => void, mode: "share" | "save" = "share") {
   const ids = workoutsDir().list().filter((d): d is Directory => d instanceof Directory).map((d) => d.name).sort();
-  await shareZip(await bundle(ids, "all", progress));
+  return deliverZip(await bundle(ids, "all", progress), mode);
 }

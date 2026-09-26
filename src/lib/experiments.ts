@@ -4,7 +4,7 @@
  * Stored like workouts (same raw .bin format) under experiments/<id>/.
  */
 import { useSyncExternalStore } from "react";
-import { Directory, File, Paths } from "expo-file-system";
+import { Directory, File, FileMode, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import Native from "../../modules/myoblue-native";
 import { ZipWriter } from "../core/zip";
@@ -208,7 +208,7 @@ experiments/<id>/
 settings.json      calibrations and placements at export time
 `;
 
-export async function exportExperiments(ids: string[], progress?: (m: string) => void) {
+export async function exportExperiments(ids: string[], progress?: (m: string) => void, mode: "share" | "save" = "share"): Promise<string> {
   const out = new File(Paths.cache, `myolift_experiments_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.zip`);
   if (out.exists) out.delete();
   out.create();
@@ -224,7 +224,7 @@ export async function exportExperiments(ids: string[], progress?: (m: string) =>
     for (const item of dir.list()) {
       if (!(item instanceof File)) continue;
       if (item.name.endsWith(".mp4")) {
-        const h = item.open();
+        const h = item.open(FileMode.ReadOnly);
         z.addChunked(`experiments/${id}/${item.name}`, () => { const c = h.readBytes(1 << 20); return c.length ? c : null; });
         h.close();
       } else z.add(`experiments/${id}/${item.name}`, await item.bytes());
@@ -232,6 +232,8 @@ export async function exportExperiments(ids: string[], progress?: (m: string) =>
     }
   }
   z.finish();
+  if (mode === "save") return await Native!.saveToDownloads(out.uri, out.name);
   if (!(await Sharing.isAvailableAsync())) throw new Error("Sharing isn't available on this device");
   await Sharing.shareAsync(out.uri, { mimeType: "application/zip", dialogTitle: out.name });
+  return "shared";
 }

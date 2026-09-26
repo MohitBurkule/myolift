@@ -17,6 +17,7 @@ export default function HistoryScreen() {
   const live = useWorkout();
   const [groups, setGroups] = useState<WorkoutSummary[][]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
   useFocusEffect(useCallback(() => { setGroups(groupSessions(listWorkouts())); }, [live.active?.meta.id]));
   return (
     <FlatList
@@ -28,11 +29,18 @@ export default function HistoryScreen() {
         <View style={{ gap: 8, marginBottom: 4 }}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <Title style={{ flex: 1 }}>History</Title>
-            <Button small title={busy ?? "Export all data"} disabled={!!busy || !groups.length} onPress={async () => {
+            <Button small title={busy ?? "Share all"} disabled={!!busy || !groups.length} onPress={async () => {
               setBusy("Packing…");
               try { await exportAll((m) => setBusy(m)); } finally { setBusy(null); }
             }} />
           </View>
+          <Button small title="Save all workouts to Downloads (for USB)" disabled={!!busy || !groups.length} onPress={async () => {
+            setBusy("Packing…"); setSaved(null);
+            try { setSaved(`Saved to ${await exportAll((m) => setBusy(m), "save")}`); }
+            catch (e: any) { setSaved(`Couldn't export: ${e?.message ?? e}. Your workouts are untouched.`); }
+            finally { setBusy(null); }
+          }} />
+          {saved ? <Body style={{ fontSize: 13 }}>{saved}</Body> : null}
           <HardSetsCard />
           <Body muted style={{ fontSize: 12 }}>Workouts started within 20 minutes of each other are shown as one session.</Body>
         </View>

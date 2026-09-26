@@ -210,6 +210,7 @@ function Saved({ id }: { id: string }) {
   const [notes, setNotes] = useState(m?.notes ?? "");
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
   if (!m) return <View style={{ flex: 1, backgroundColor: t.bg }} />;
   const vid = videoFile(id);
   const c = m.context;
@@ -229,7 +230,13 @@ function Saved({ id }: { id: string }) {
       <Button small title="Save notes" onPress={() => updateExperiment(id, { notes })} />
       <Label>Marks</Label>
       <MarkList marks={m.marks} />
-      <Button title={busy ?? "Export this experiment (zip)"} variant="primary" disabled={!!busy} onPress={async () => { setBusy("Packing…"); try { await exportExperiments([id], setBusy); } finally { setBusy(null); } }} />
+      <Button title={busy ?? "Save to Downloads (for USB)"} variant="primary" disabled={!!busy} onPress={async () => {
+        setBusy("Packing…");
+        try { const r = await exportExperiments([id], setBusy, "save"); setBusy(null); setSavedMsg(`Saved to ${r}`); }
+        catch (e: any) { setBusy(null); setSavedMsg(`Couldn't export: ${e?.message ?? e}. The recording is untouched.`); }
+      }} />
+      <Button title="Share (zip)" disabled={!!busy} onPress={async () => { setBusy("Packing…"); try { await exportExperiments([id], setBusy); } finally { setBusy(null); } }} />
+      {savedMsg ? <Body style={{ fontSize: 13 }}>{savedMsg}</Body> : null}
       <Button title={confirm ? "Tap again to delete" : "Delete"} variant="danger" onPress={() => {
         if (!confirm) { setConfirm(true); setTimeout(() => setConfirm(false), 3000); return; }
         deleteExperiment(id); router.back();
