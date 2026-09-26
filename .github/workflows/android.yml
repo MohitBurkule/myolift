@@ -33,6 +33,8 @@ jobs:
         run: npm ci --legacy-peer-deps
       - name: Typecheck and unit tests
         run: npx tsc --noEmit && npm test
+      - name: Patch expo-camera (zoom below 1x)
+        run: node scripts/patch-expo-camera.js
       - name: Generate native project
         run: npx expo prebuild --platform android --no-install
       - name: Build release APK

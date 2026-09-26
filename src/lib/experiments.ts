@@ -78,6 +78,8 @@ export interface ExperimentMeta {
   audio: boolean;
   /** workout this experiment was copied into */
   importedTo?: string;
+  /** video rep count (full result in videomotion.json) */
+  videoMotion?: { mode: "rope" | "scale"; reps: number; full: number; partial: number };
 }
 
 export function experimentsDir(): Directory {

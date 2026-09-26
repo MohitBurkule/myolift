@@ -70,6 +70,16 @@ class MyoblueNativeModule : Module() {
       Updater.install(context, url)
     }
 
+    AsyncFunction("decodeFramesGray") { src: String, fps: Double, width: Int ->
+      val context = appContext.reactContext ?: throw Exception("no context")
+      VideoFrames.decode(context, src, fps, width)
+    }
+
+    Function("zoomRanges") {
+      val context = appContext.reactContext ?: return@Function emptyMap<String, List<Double>>()
+      CameraZoom.ranges(context)
+    }
+
     AsyncFunction("saveToDownloads") { src: String, name: String ->
       val context = appContext.reactContext ?: throw Exception("no context")
       Downloads.save(context, src, name)

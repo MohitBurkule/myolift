@@ -41,6 +41,8 @@ export interface Settings {
   placementCheck: boolean;
   /** what the last experiment used, so the next one starts the same way */
   lastExperiment: { facing: "front" | "back"; useCam: boolean; audio: boolean; weight: number | null; preset: string } | null;
+  /** camera: use the widest zoom (e.g. 0.5x ultrawide) per facing */
+  cameraWide: { front?: boolean; back?: boolean };
   /** start calibration with "left arm only" to tell two sensors on the same muscle apart */
   identifyArms: boolean;
   /** download and install new GitHub builds when the app opens (not during a workout) */
@@ -91,6 +93,7 @@ const DEFAULTS: Settings = {
   restGapS: 6,
   placementCheck: true,
   lastExperiment: null,
+  cameraWide: {},
   identifyArms: true,
   autoUpdate: true,
   placementRefs: {},

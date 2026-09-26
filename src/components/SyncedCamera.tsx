@@ -3,6 +3,11 @@ import { Pressable, Text, View } from "react-native";
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from "expo-camera";
 import Native from "../../modules/myoblue-native";
 import { Button } from "./ui";
+import { getSettings, updateSettings, useSettings } from "../lib/settings";
+
+/** Zoom range per facing as the phone reports it (min < 1 = a wider lens exists). */
+let ranges: { front?: [number, number]; back?: [number, number] } | null = null;
+const zoomRange = (f: "front" | "back") => { try { ranges ??= Native?.zoomRanges() ?? {}; } catch { ranges = {}; } return ranges[f] ?? null; };
 
 export interface SyncedCameraHandle {
   ready: () => boolean;
@@ -23,6 +28,11 @@ export const SyncedCamera = forwardRef<SyncedCameraHandle, {
   const cam = useRef<CameraView>(null);
   const [ready, setReady] = useState(false);
   const withSound = audio && !!mic?.granted;
+  const s = useSettings();
+  const range = zoomRange(facing);
+  const canWide = !!range && range[0] < 0.99;
+  const wide = canWide && !!s.cameraWide?.[facing];
+  const setWide = (v: boolean) => updateSettings({ cameraWide: { ...(getSettings().cameraWide ?? {}), [facing]: v } });
   useImperativeHandle(ref, () => ({
     ready: () => ready && !!cam.current,
     record: () => {
@@ -37,7 +47,8 @@ export const SyncedCamera = forwardRef<SyncedCameraHandle, {
   return (
     <View style={{ gap: 6 }}>
       <View style={{ height, borderRadius: 12, overflow: "hidden", backgroundColor: "#000" }}>
-        <CameraView ref={cam} style={{ flex: 1 }} facing={facing} mode="video" mute={!withSound} videoQuality="720p" onCameraReady={() => setReady(true)} />
+        {/* zoom < 0 = below 1x toward the widest lens (patched expo-camera, see scripts/patch-expo-camera.js) */}
+        <CameraView ref={cam} style={{ flex: 1 }} facing={facing} mode="video" mute={!withSound} videoQuality="720p" zoom={wide ? -1 : 0} onCameraReady={() => setReady(true)} />
         {overlay}
         {!locked && onFacing ? (
           <Pressable onPress={() => onFacing(facing === "back" ? "front" : "back")} accessibilityRole="button" accessibilityLabel="Switch camera"
@@ -46,6 +57,12 @@ export const SyncedCamera = forwardRef<SyncedCameraHandle, {
           </Pressable>
         ) : null}
       </View>
+      {!locked ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Button small title={wide ? `Wide ${range![0].toFixed(1)}× ✓` : canWide ? `Wide (${range![0].toFixed(1)}×)` : "Wide: not available"} disabled={!canWide} onPress={() => setWide(!wide)} />
+          <Text style={{ color: "#888", fontSize: 12, flex: 1 }}>{range ? `${facing} camera zoom ${range[0].toFixed(2)}–${range[1].toFixed(0)}×` : ""}</Text>
+        </View>
+      ) : null}
       {audio && !mic?.granted && !locked ? <Button small title="Allow microphone (voice notes)" onPress={requestMic} /> : null}
     </View>
   );

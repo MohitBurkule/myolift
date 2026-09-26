@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, ScrollView, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import type { LoggedSet } from "../core/log";
@@ -13,6 +13,8 @@ import { defaultMode, learnFromCorrection, paramsFor, setMode } from "../lib/rep
 import { useSettings } from "../lib/settings";
 import { RirPicker } from "../components/RirPicker";
 import { effectiveRir, hardWeight, isHard, rirLabel } from "../core/setmodel";
+import { MotionChart } from "../components/MotionChart";
+import { loadWorkoutMotions, videoRepsInSet } from "../lib/videoanalysis";
 
 /** One set: activation per arm with reps and holds marked, rep-by-rep numbers, and corrections. */
 export default function SetScreen() {
@@ -25,6 +27,10 @@ export default function SetScreen() {
   const [learning, setLearning] = useState<string | null>(null);
   const [refit, setRefit] = useState<string | null>(null);
   const settings = useSettings();
+  const motions = useMemo(() => { const id = wid ?? activeWorkoutId(); return id ? loadWorkoutMotions(id) : []; }, [wid, set?.id]);
+  const vid = set ? videoRepsInSet(motions, set.start / 1000, set.end / 1000) : null;
+  /** the video's full/partial for an EMG rep (ms), when a video rep falls inside it */
+  const videoRange = (a: number, b: number) => vid?.reps.find((v) => v.at * 1000 >= a - 300 && v.at * 1000 <= b + 300)?.range;
   const reload = () => {
     const sets = wid ? loadWorkout(wid)?.sets ?? [] : liveLog();
     setSet(sets.find((s) => s.id === sid) ?? null);
@@ -101,7 +107,7 @@ export default function SetScreen() {
               <Text style={{ color: t.muted, fontSize: 12, fontVariant: ["tabular-nums"] }}>rep   peak   up (s)  down (s)  freq     range</Text>
               {side.reps.map((r, i) => (
                 <Text key={i} style={{ color: t.ink, fontSize: 13, fontVariant: ["tabular-nums"] }}>
-                  {String(i + 1).padStart(3)}   {r.peak.toFixed(0).padStart(3)}%   {r.riseS.toFixed(1).padStart(5)}   {r.fallS.toFixed(1).padStart(7)}   {(r.mdf ? `${r.mdf.toFixed(0)} Hz` : "–").padEnd(8)} {r.range === "top" ? "top half" : r.range === "bottom" ? "bottom half" : r.range ?? "full"}
+                  {String(i + 1).padStart(3)}   {r.peak.toFixed(0).padStart(3)}%   {r.riseS.toFixed(1).padStart(5)}   {r.fallS.toFixed(1).padStart(7)}   {(r.mdf ? `${r.mdf.toFixed(0)} Hz` : "–").padEnd(8)} {videoRange(r.start, r.end) ? `${videoRange(r.start, r.end)} (video)` : r.range === "top" ? "top half" : r.range === "bottom" ? "bottom half" : r.range ?? "full"}
                 </Text>
               ))}
             </View>
@@ -110,6 +116,17 @@ export default function SetScreen() {
         );
       })}
       <Body muted style={{ fontSize: 12 }}>Range is estimated from activation (a full rep peaks high and relaxes low; top-half partials never relax, bottom-half partials never peak), not from the joint angle. "Up" is onset to peak activation (mostly the lifting part), "down" is peak to relaxed (mostly lowering). Frequency is the median frequency of the EMG; it drops as the muscle fatigues.</Body>
+
+      {vid?.motion ? (
+        <>
+          <Label>From the video</Label>
+          <Card style={{ padding: 12, gap: 8 }}>
+            <Text style={{ color: t.ink, fontSize: 17, fontWeight: "700" }}>{vid.reps.length} reps · {vid.full} full + {vid.partial} partial</Text>
+            <MotionChart r={vid.motion} from={set.start / 1000 - vid.motion.startS - 1} to={set.end / 1000 - vid.motion.startS + 1} />
+            <Text style={{ color: t.muted, fontSize: 12 }}>EMG counted {set.reps} full{set.partials ? ` + ${set.partials} partial` : ""}. Where a video rep lines up with an EMG rep, the rep list above uses the video's full/partial (marked "video").</Text>
+          </Card>
+        </>
+      ) : null}
 
       <Label>How hard was it?</Label>
       <Card style={{ padding: 12, gap: 10 }}>

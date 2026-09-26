@@ -40,6 +40,10 @@ declare class MyoblueNativeModule extends NativeModule<MyoblueEvents> {
   appVersionCode(): number;
   /** copy a file into Downloads/MyoLift (visible over USB); returns the path shown to the user */
   saveToDownloads(src: string, name: string): Promise<string>;
+  /** decode a video into small grayscale frames (upright) in one raw temp file */
+  decodeFramesGray(src: string, fps: number, width: number): Promise<{ path: string; width: number; height: number; count: number; t: number[]; rotation: number }>;
+  /** zoom ratio [min, max] per facing; min < 1 means a wide-angle lens is available */
+  zoomRanges(): { front?: [number, number]; back?: [number, number] };
   canInstallUpdates(): boolean;
   openInstallPermission(): void;
   /** download the APK and hand it to the system installer; false if an update is already running */

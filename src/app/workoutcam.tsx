@@ -8,6 +8,8 @@ import { Body, Button, Label, Toggle } from "../components/ui";
 import { updateSettings, useSettings } from "../lib/settings";
 import { clock, useTheme } from "../lib/theme";
 import { activeWorkoutClock, addEvent, useWorkout } from "../lib/workout";
+import { analyseWorkoutVideo, useVideoAnalysis } from "../lib/videoanalysis";
+import { motionModeFor } from "../core/videomotion";
 
 const QUICK = ["start set", "drop weight", "half reps", "hold", "one arm", "failure", "rest"];
 
@@ -27,6 +29,7 @@ export default function WorkoutCamera() {
   const [rec, setRec] = useState<{ t0: number; file: string; done: Promise<string | null> } | null>(null);
   const [note, setNote] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
+  const vbusy = useVideoAnalysis();
   const [, tick] = useState(0);
   const recRef = useRef(rec);
   recRef.current = rec;
@@ -73,6 +76,13 @@ export default function WorkoutCamera() {
       setMsg(`Saved ${r.file} with this workout.`);
     } else if (!uri) setMsg("The video wasn't saved.");
     addEvent({ type: "note", text: `video stopped (${r.file})` });
+    // count reps from the video (only reads it); shown on the set screen
+    const mode = motionModeFor(s.exercise?.id, s.exercise?.name);
+    if (uri && c && mode) {
+      analyseWorkoutVideo(c.id, r.file, r.t0 / 1000, mode)
+        .then((v) => v && setMsg(`Saved ${r.file}. Video reps: ${v.reps.length} (${v.full} full + ${v.partial} partial).`))
+        .catch((e) => setMsg(`Saved ${r.file}. Couldn't count reps from it: ${e?.message ?? e}`));
+    }
   }
 
   const el = rec ? (ck.nowMs() - rec.t0) / 1000 : 0;
@@ -102,6 +112,7 @@ export default function WorkoutCamera() {
           <Button title="Stop video" variant="stop" onPress={stop} />
         </>
       ) : <Button title="Start video" variant="record" onPress={start} />}
+      {vbusy?.key.startsWith("wk:") ? <Body style={{ fontSize: 13 }}>{vbusy.stage} {Math.round(vbusy.progress * 100)}%</Body> : null}
       {msg ? <Body style={{ fontSize: 13 }}>{msg}</Body> : null}
       <Body muted style={{ fontSize: 12 }}>The workout keeps recording EMG and counting sets as usual. Change the weight on the Workout tab; it's recorded with its time.</Body>
     </ScrollView>

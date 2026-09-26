@@ -6,6 +6,8 @@ import Native from "../../modules/myoblue-native";
 import { Body, Button, Card, Label, Title, Toggle } from "../components/ui";
 import { SyncedCamera, type SyncedCameraHandle } from "../components/SyncedCamera";
 import { WeightChips } from "../components/WeightChips";
+import { MotionChart } from "../components/MotionChart";
+import { analyseExperimentVideo, experimentMode, loadExperimentMotion, useVideoAnalysis } from "../lib/videoanalysis";
 import { removeWeightAt, setWeightAt } from "../core/expdata";
 import {
   activeExperiment, deleteExperiment, PROTOCOL, PROTOCOL_PRESET, exportExperiments, FEEL, loadExperiment, markExperiment, nowS, PRESETS, startExperiment, stopExperiment,
@@ -263,6 +265,7 @@ function Saved({ id }: { id: string }) {
         <Button small title="Undo last weight change" disabled={!m.edits.length} onPress={() => undoLastEdit(id)} />
         <Text style={{ color: t.muted, fontSize: 12 }}>Changes here only edit the labels; the recording itself is never changed.</Text>
       </Card>
+      {m.video && vid.exists ? <VideoReps id={id} m={m} /> : null}
       {m.importedTo ? <Body muted style={{ fontSize: 13 }}>Also in History as a workout.</Body> : null}
       <Label>Marks</Label>
       <MarkList marks={m.marks} />
@@ -278,6 +281,44 @@ function Saved({ id }: { id: string }) {
         deleteExperiment(id); router.back();
       }} />
     </ScrollView>
+  );
+}
+
+/** Reps counted from the video (rope / machine frame), analysed on the phone after recording. */
+function VideoReps({ id, m }: { id: string; m: ExperimentMeta }) {
+  const t = useTheme();
+  const busy = useVideoAnalysis();
+  const [res, setRes] = useState(() => loadExperimentMotion(id));
+  const [err, setErr] = useState<string | null>(null);
+  const mine = busy?.key === `exp:${id}`;
+  const run = async (mode?: "rope" | "scale") => {
+    setErr(null);
+    try { const r = await analyseExperimentVideo(id, mode); if (r) setRes(r); } catch (e: any) { setErr(`${e?.message ?? e}`); }
+  };
+  // new recordings: analyse once, automatically
+  useEffect(() => { if (!res && !busy) run(); }, []);
+  const mode = res?.mode ?? experimentMode(m);
+  return (
+    <>
+      <Label>Video reps</Label>
+      <Card style={{ padding: 12, gap: 8 }}>
+        {mine ? <Text style={{ color: t.ink }}>{busy!.stage} {Math.round(busy!.progress * 100)}%</Text>
+          : res ? (
+            <>
+              <Text style={{ color: t.ink, fontSize: 17, fontWeight: "700" }}>{res.reps.length} reps · {res.full} full + {res.partial} partial</Text>
+              <MotionChart r={res} />
+              <Text style={{ color: t.muted, fontSize: 12 }}>Full = at least 70% of the travel of this recording's biggest reps. {res.frames} frames analysed in {(res.ms / 1000).toFixed(0)} s.</Text>
+            </>
+          ) : <Body muted style={{ fontSize: 13 }}>Not analysed yet.</Body>}
+        {err ? <Text style={{ color: t.warn, fontSize: 13 }}>Couldn't analyse the video: {err}</Text> : null}
+        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+          <Chip text="Rope / handle tracking" on={mode === "rope"} onPress={() => !busy && run("rope")} />
+          <Chip text="Machine frame (pull-up, dip)" on={mode === "scale"} onPress={() => !busy && run("scale")} />
+        </View>
+        {!mine ? <Button small title={res ? "Analyse again" : "Analyse video"} disabled={!!busy} onPress={() => run(mode)} /> : null}
+        <Text style={{ color: t.muted, fontSize: 12 }}>Only reads the video; the recording is never changed.</Text>
+      </Card>
+    </>
   );
 }
 
