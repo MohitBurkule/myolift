@@ -9,9 +9,9 @@ export interface Research { verdict: Verdict; title: string; summary: string; st
 
 export const RESEARCH: Record<string, Research> = {
   one_arm_eccentric: {
-    verdict: "neutral", title: "Lowering with one arm",
-    summary: "A 2026 meta-analysis of 49 studies found extra eccentric load gives no more growth than normal reps; upper-body eccentrics may have a small edge. Fine as a way to make sets harder, not a growth multiplier. Expect more soreness.",
-    strength: "moderate", source: "AEL vs constant load meta-analysis, Sports Med 2026; Eccentric vs concentric meta-analysis, JSCR 2024",
+    verdict: "unknown", title: "Lowering with one arm",
+    summary: "Plausible but unproven. The big eccentric-overload meta-analysis found no extra growth, but only ~3 trials measured muscle size, mostly for 4–5 weeks, and most used weight releasers with pauses, not continuous one-arm overload like this. Upper-body eccentrics may have a small edge. To find out for you: do it on one arm only for 8–12 weeks and track both arms in Body measurements.",
+    strength: "weak for this method", source: "AEL vs constant load meta-analysis, Sports Med 2026 (underpowered for growth); Eccentric vs concentric meta-analysis, JSCR 2024",
   },
   drop_set: {
     verdict: "helpful", title: "Drop set",
