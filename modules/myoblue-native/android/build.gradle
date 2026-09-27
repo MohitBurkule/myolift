@@ -20,7 +20,10 @@ android {
 // Huawei Wear Engine (experimental Huawei watch bridge). The repo is also added to the app's
 // build.gradle by plugins/withHuaweiMaven.js.
 repositories {
-  maven { url 'https://developer.huawei.com/repo/' }
+  maven {
+    url 'https://developer.huawei.com/repo/'
+    content { includeGroupByRegex 'com\\.huawei.*' }
+  }
 }
 
 dependencies {
