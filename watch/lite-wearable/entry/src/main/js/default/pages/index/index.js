@@ -5,7 +5,7 @@
  * wearengine.js comes from Huawei's Wear Engine SDK for lite wearables (see README).
  */
 import sensor from '@system.sensor';
-import { P2pClient, Message, Builder } from '../../wearengine';
+import { P2pClient, Message, Builder } from '../../wearengine/wearengine';
 
 const PHONE_PKG = 'com.mohitburkule.myolift';
 // SHA-256 of the MyoLift release signing certificate (public; from CI's release.p12)

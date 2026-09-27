@@ -48,3 +48,10 @@ tests/photos/
 tests/real/
 __pycache__/
 tools/*.task
+watch/lite-wearable/entry/build/
+watch/lite-wearable/build/
+watch/lite-wearable/.hvigor/
+watch/lite-wearable/oh_modules/
+watch/lite-wearable/oh-package-lock.json5
+watch/lite-wearable/local.properties
+watch/lite-wearable/build-profile.json5.bak
