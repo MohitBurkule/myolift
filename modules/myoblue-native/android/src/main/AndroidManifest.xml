@@ -21,6 +21,14 @@
 
   <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
+  <!-- Android 11+ package visibility: Wear Engine talks to Huawei Health / HMS Core -->
+  <queries>
+    <package android:name="com.huawei.health" />
+    <package android:name="com.huawei.hwid" />
+    <package android:name="com.huawei.hms" />
+    <package android:name="com.huawei.appmarket" />
+  </queries>
+
   <application>
     <service
       android:name="expo.modules.myobluenative.RecordingService"
