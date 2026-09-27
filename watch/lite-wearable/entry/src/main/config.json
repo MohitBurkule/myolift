@@ -1,0 +1,29 @@
+{
+  "app": {
+    "bundleName": "com.mohitburkule.myoliftwatch",
+    "vendor": "mohitburkule",
+    "version": { "code": 1, "name": "1.0.0" }
+  },
+  "deviceConfig": {},
+  "module": {
+    "package": "com.mohitburkule.myoliftwatch",
+    "name": ".MyApplication",
+    "deviceType": ["liteWearable"],
+    "distro": { "deliveryWithInstall": true, "moduleName": "entry", "moduleType": "entry" },
+    "abilities": [
+      {
+        "name": "default",
+        "icon": "$media:icon",
+        "label": "MyoLift",
+        "type": "page",
+        "visible": true,
+        "skills": [{ "entities": ["entity.system.home"], "actions": ["action.system.home"] }]
+      }
+    ],
+    "js": [{ "name": "default", "pages": ["pages/index/index"] }],
+    "reqPermissions": [
+      { "name": "ohos.permission.ACCELEROMETER" },
+      { "name": "ohos.permission.READ_HEALTH_DATA" }
+    ]
+  }
+}

@@ -1,6 +1,7 @@
 package expo.modules.myobluenative
 
 import android.util.Base64
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -9,7 +10,7 @@ class MyoblueNativeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("MyoblueNative")
 
-    Events("onDevice", "onSensorState", "onPacket", "onMarker", "onRecording", "onUpdate")
+    Events("onDevice", "onSensorState", "onPacket", "onMarker", "onRecording", "onUpdate", "onWearMessage")
 
     OnCreate {
       val context = appContext.reactContext ?: return@OnCreate
@@ -26,12 +27,15 @@ class MyoblueNativeModule : Module() {
         override fun onRecording(active: Boolean) =
           sendEvent("onRecording", mapOf("active" to active))
       }
+      Wear.listener = { device, data, t ->
+        sendEvent("onWearMessage", mapOf("device" to device, "data" to data, "t" to t))
+      }
       Updater.listener = { phase, progress, message ->
         sendEvent("onUpdate", mapOf("phase" to phase, "progress" to progress, "message" to message))
       }
     }
 
-    OnDestroy { MyoBle.listener = null; Updater.listener = null }
+    OnDestroy { MyoBle.listener = null; Updater.listener = null; Wear.listener = null }
 
     Function("isBluetoothOn") { MyoBle.isEnabled() }
     Function("startScan") { MyoBle.startScan() }
@@ -65,6 +69,36 @@ class MyoblueNativeModule : Module() {
       val context = appContext.reactContext
       if (context != null) Updater.openInstallPermission(context)
     }
+    // Huawei watch (Wear Engine), experimental. All of these resolve with {ok, ...}; they never reject.
+    Function("wearAvailable") {
+      val context = appContext.reactContext ?: return@Function mapOf("ok" to false, "error" to "no context")
+      Wear.available(context)
+    }
+    AsyncFunction("wearCheckPermission") { promise: Promise ->
+      val context = appContext.reactContext
+      if (context == null) promise.resolve(mapOf("ok" to false, "error" to "no context")) else Wear.checkPermission(context, promise)
+    }
+    AsyncFunction("wearRequestPermission") { promise: Promise ->
+      val context = appContext.reactContext
+      if (context == null) promise.resolve(mapOf("ok" to false, "error" to "no context")) else Wear.requestPermission(context, appContext.currentActivity, promise)
+    }
+    AsyncFunction("wearDevices") { promise: Promise ->
+      val context = appContext.reactContext
+      if (context == null) promise.resolve(mapOf("ok" to false, "error" to "no context")) else Wear.bondedDevices(context, promise)
+    }
+    AsyncFunction("wearPing") { uuid: String, pkg: String, fingerprint: String, promise: Promise ->
+      val context = appContext.reactContext
+      if (context == null) promise.resolve(mapOf("ok" to false, "error" to "no context")) else Wear.ping(context, uuid, pkg, fingerprint, promise)
+    }
+    AsyncFunction("wearSend") { uuid: String, pkg: String, fingerprint: String, text: String, promise: Promise ->
+      val context = appContext.reactContext
+      if (context == null) promise.resolve(mapOf("ok" to false, "error" to "no context")) else Wear.send(context, uuid, pkg, fingerprint, text, promise)
+    }
+    AsyncFunction("wearListen") { uuid: String, pkg: String, fingerprint: String, promise: Promise ->
+      val context = appContext.reactContext
+      if (context == null) promise.resolve(mapOf("ok" to false, "error" to "no context")) else Wear.listen(context, uuid, pkg, fingerprint, promise)
+    }
+
     Function("installUpdate") { url: String ->
       val context = appContext.reactContext ?: return@Function false
       Updater.install(context, url)

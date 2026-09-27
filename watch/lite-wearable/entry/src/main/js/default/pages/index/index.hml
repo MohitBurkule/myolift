@@ -1,0 +1,6 @@
+<div class="container">
+  <text class="title">MyoLift</text>
+  <text class="status">{{ status }}</text>
+  <text class="info">HR {{ hr }} · sent {{ sent }}</text>
+  <input type="button" class="btn" value="{{ running ? 'Stop' : 'Start' }}" onclick="toggle" />
+</div>

@@ -75,6 +75,12 @@ export default function SettingsScreen() {
         <Button small title="Open measurements" onPress={() => router.push("/measurements")} />
       </Card>
 
+      <Label>Huawei watch (experimental)</Label>
+      <Card style={card}>
+        <Body muted style={{ fontSize: 13 }}>Tests whether MyoLift can talk to a Huawei watch (Wear Engine) for forearm motion and heart rate.</Body>
+        <Button small title="Open Huawei watch test" onPress={() => router.push("/huaweiwatch")} />
+      </Card>
+
       <Label>Rep counting</Label>
       <Card style={card}>
         <Body muted style={{ fontSize: 13 }}>Each exercise learns how its reps look in the EMG from the counts you correct (open a set → Full reps → Save & learn).</Body>

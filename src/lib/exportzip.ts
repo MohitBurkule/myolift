@@ -38,6 +38,7 @@ async function bundle(ids: string[], label: string, progress?: (msg: string) => 
   const s = getSettings();
   z.add("settings.json", new TextEncoder().encode(JSON.stringify({ ...s, placementPhotos: undefined, app: APP_VERSION }, null, 2)));
   z.add("measurements.json", require("./measurements").measurementsJson());
+  try { const wd = require("./wear").diagnosticsFile(); if (wd.exists) z.add("wear-diagnostics.json", await wd.bytes()); } catch {}
   let i = 0;
   for (const id of ids) {
     progress?.(`Packing ${++i}/${ids.length}…`);

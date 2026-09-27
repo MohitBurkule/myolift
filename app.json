@@ -38,7 +38,8 @@
           "microphonePermission": "MyoLift records sound with the video so you can say what you're doing (voice notes).",
           "recordAudioAndroid": true
         }
-      ]
+      ],
+      "./plugins/withHuaweiMaven.js"
     ],
     "scheme": "myolift"
   }

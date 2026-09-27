@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ensurePermissions, initSensors, nativeAvailable } from "../lib/sensors";
 import { useTheme } from "../lib/theme";
 import { initUpdates } from "../lib/update";
+import { initWear } from "../lib/wear";
 import { initWorkout } from "../lib/workout";
 
 export default function RootLayout() {
@@ -15,6 +16,7 @@ export default function RootLayout() {
       initSensors();
       initWorkout();
       initUpdates();
+      initWear();
     })();
   }, []);
   const header = { headerStyle: { backgroundColor: t.panel }, headerTintColor: t.ink, headerShadowVisible: false, contentStyle: { backgroundColor: t.bg } };
@@ -33,6 +35,7 @@ export default function RootLayout() {
         <Stack.Screen name="experiment" options={{ title: "Experiment" }} />
         <Stack.Screen name="workoutcam" options={{ title: "Workout camera" }} />
         <Stack.Screen name="measurements" options={{ title: "Body measurements" }} />
+        <Stack.Screen name="huaweiwatch" options={{ title: "Huawei watch" }} />
         <Stack.Screen name="photo" options={{ title: "Photo check" }} />
         <Stack.Screen name="workout/[id]" options={{ title: "Workout" }} />
       </Stack>
